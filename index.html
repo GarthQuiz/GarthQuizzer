@@ -1322,7 +1322,7 @@ Close
    Uses Google Apps Script as the central database.
    No Google Sheet is required for the quiz/record storage.
 ========================================================= */
-const API_URL = "https://script.google.com/macros/s/AKfycbwH5AVwmSnXKY30E_hSmKGiLCwjYitAERRAj8PpAtuCqfcvsbfxebA9duEXvgciQaWgwA/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbgDqrrCbBRg_4MI9PemE15-KhbQ-J_IlkFM7IL5QUbIbCUfUelhUumgkL3aCbIGVV2/exec";
 
 const QUIZ_KEY = "classquiz_pro_v4_quizzes";
 const RECORD_KEY = "classquiz_pro_v4_records";
@@ -6247,6 +6247,21 @@ function gqClearAttempt(email, quizNumber){
 /* This guard prevents accidental duplicate starts on the same browser.
    The server/database must also enforce the same email+quiz rule for
    protection across devices. */
+async function gqServerAttemptCheck(payload){
+    let lastError = null;
+    for(let attempt=1; attempt<=3; attempt++){
+        try{
+            const result = await apiRequest("checkStudentAttempt", {...payload, _ts:Date.now()}, "GET");
+            if(result && result.ok) return result;
+            lastError = new Error((result && result.message) || "Server returned no valid attempt status.");
+        }catch(e){
+            lastError = e;
+        }
+        if(attempt < 3) await new Promise(r=>setTimeout(r, 700 * attempt));
+    }
+    throw lastError || new Error("Attempt verification failed.");
+}
+
 async function gqCheckBeforeStart(email, quizNumber){
     email = gqNormalizeEmail(email);
     if(!email) return {ok:false, message:"Please enter your email address."};
@@ -6257,11 +6272,11 @@ async function gqCheckBeforeStart(email, quizNumber){
     // the teacher deleted this student's records, the server reports zero
     // attempts and we clear the stale browser marker below.
     try{
-        const server = await apiRequest("checkStudentAttempt", {
+        const server = await gqServerAttemptCheck({
             teacherId: currentStudentTeacherId,
             quizNumber: Number(quizNumber),
             email
-        }, "GET");
+        });
 
         if(server && server.ok){
             if(server.resume){
@@ -6295,26 +6310,27 @@ async function gqCheckBeforeStart(email, quizNumber){
             return {ok:true, newAttempt:true, attemptNumber:Number(server.attemptNumber || 1)};
         }
     }catch(error){
-        console.warn("Student attempt server check failed; using local recovery guard.", error);
+        console.warn("Student attempt server check failed; local marker will NOT be used to block the student.", error);
+
+        // IMPORTANT: localStorage is only a resume aid. It must never be the
+        // authority for the 2-attempt limit because a teacher may have deleted
+        // the student's server records. If the server cannot be reached, do
+        // not display a false "both attempts used" message based on stale
+        // browser data. Ask the student to retry verification instead.
+        return {
+            ok:false,
+            retryVerification:true,
+            message:"We could not verify your quiz attempts with the server. Please click Log In again to retry. Your browser's old attempt data will not be used to block you."
+        };
     }
 
-    // Offline/fallback behavior if the server cannot be reached.
-    if(existing && existing.status === "in_progress"){
-        return {ok:true, resume:true, attempt:existing};
-    }
-
-    if(existing && existing.status === "completed"){
-        const used = Number(existing.attemptNumber || 1);
-        if(used >= 2){
-            return {
-                ok:false,
-                message:"You have already used both attempts for this quiz. You cannot take it again."
-            };
-        }
-        return {ok:true, newAttempt:true, previous:existing};
-    }
-
-    return {ok:true, newAttempt:true};
+    // If the server returned no usable answer, never trust a stale browser
+    // completion marker for the attempt limit.
+    return {
+        ok:false,
+        retryVerification:true,
+        message:"Unable to verify your quiz attempt. Please try again."
+    };
 }
 
 function gqStartLocalAttempt(email, quizNumber, attemptNumber=1){
