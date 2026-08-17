@@ -282,6 +282,27 @@ select:focus{
 .account-list{display:grid;gap:10px}
 .account-item{border:1px solid var(--border);border-radius:12px;padding:14px;background:#fff;display:flex;justify-content:space-between;gap:15px;align-items:center}
 .account-meta{min-width:0}.account-meta strong{display:block;margin-bottom:3px}
+
+.account-section-folder{border:1px solid var(--border);border-radius:14px;background:#fff;overflow:hidden;margin-bottom:12px}
+.account-section-folder summary{list-style:none;cursor:pointer;padding:14px 16px;background:#f8fafc;font-weight:900;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.account-section-folder summary::-webkit-details-marker{display:none}
+.account-section-folder summary:hover{background:#eff6ff}
+.account-section-folder .folder-count{font-size:12px;color:var(--muted);font-weight:800}
+.account-section-folder .folder-accounts{padding:10px}
+.account-password{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;letter-spacing:.02em}
+.account-password-wrap{display:flex;align-items:center;gap:8px;margin-top:7px;flex-wrap:wrap}
+.account-password-label{font-size:12px;color:var(--muted);font-weight:800}
+.account-password-value{background:#f1f5f9;border:1px solid var(--border);border-radius:8px;padding:6px 9px;word-break:break-all}
+.bulk-import-card{margin-top:20px;border:1px solid var(--border);border-radius:14px;background:#fff;padding:18px}
+.bulk-import-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.bulk-import-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.bulk-import-table-wrap{overflow:auto;margin-top:14px;border:1px solid var(--border);border-radius:10px}
+.bulk-import-table{width:100%;border-collapse:collapse;min-width:680px}
+.bulk-import-table th,.bulk-import-table td{padding:9px 10px;border-bottom:1px solid var(--border);text-align:left;font-size:13px}
+.bulk-import-table th{background:#f8fafc;font-weight:900}
+.bulk-import-table tr:last-child td{border-bottom:0}
+.import-empty{padding:18px;text-align:center;color:var(--muted)}
+.import-note{margin-top:10px;line-height:1.5}
 @media(max-width:900px){.account-grid{grid-template-columns:1fr}}
 
 .timer-counter.warning{background:#fef3c7;color:#92400e}
@@ -987,7 +1008,8 @@ margin-bottom:20px;
 
 
 <!-- STUDENT ACCOUNTS -->
-<div id="accountsSection" class="hidden"><div class="card" style="background:#f8fafc;border:1px solid var(--border)"><h2>Create Student Account</h2><p class="small">Create login credentials for each student. Passwords are sent to the secure backend and should be stored there as a hash, not in the browser.</p><div id="studentAccountStatus" class="success-message hidden"></div><div id="studentAccountError" class="error hidden"></div><div class="account-grid"><div><div class="form-group"><label>Student Name</label><input type="text" id="accountStudentName" placeholder="Full name"></div><div class="form-group"><label>Email Address</label><input type="email" id="accountStudentEmail" placeholder="student@example.com" autocomplete="off"></div><div class="form-group"><label>Temporary Password</label><input type="password" id="accountStudentPassword" placeholder="Set a password" autocomplete="new-password"></div><div class="form-group"><label>Section</label><select id="accountStudentSection"><option value="">Select section</option></select></div><button class="btn btn-success full" type="button" onclick="createStudentAccount()">Create Student Account</button></div><div><h3>Registered Students</h3><div class="small" style="margin-bottom:10px">Only students belonging to your teacher account are shown here.</div><div id="studentAccountsList" class="account-list"><div class="small">Loading student accounts...</div></div></div></div></div></div>
+<div id="accountsSection" class="hidden"><div class="card" style="background:#f8fafc;border:1px solid var(--border)"><h2>Student Accounts</h2><p class="small">Create login credentials for each student. The teacher can view the password saved locally in this browser, and student accounts are grouped into section folders.</p><div id="studentAccountStatus" class="success-message hidden"></div><div id="studentAccountError" class="error hidden"></div><div class="account-grid"><div><div class="form-group"><label>Student Name</label><input type="text" id="accountStudentName" placeholder="Full name"></div><div class="form-group"><label>Email Address</label><input type="email" id="accountStudentEmail" placeholder="student@example.com" autocomplete="off"></div><div class="form-group"><label>Password</label><input type="text" id="accountStudentPassword" placeholder="Set a password" autocomplete="new-password"></div><div class="form-group"><label>Section</label><select id="accountStudentSection"><option value="">Select section</option></select></div><button class="btn btn-success full" type="button" onclick="createStudentAccount()">Create Student Account</button></div><div><h3>Registered Students</h3><div class="small" style="margin-bottom:10px">Only students belonging to your teacher account are shown here.</div><div id="studentAccountsList" class="account-list"><div class="small">Loading student accounts...</div></div></div></div>
+<div class="bulk-import-card"><div class="bulk-import-head"><div><h3 style="margin:0">Import Student Details</h3><div class="small">Import many students at once instead of creating every account manually.</div></div><div class="bulk-import-actions"><input type="file" id="studentImportFile" accept=".csv,.txt,.tsv,.json" class="hidden" onchange="handleStudentImportFile(event)"><button class="btn btn-secondary" type="button" onclick="document.getElementById('studentImportFile').click()">📥 Import CSV / TXT / JSON</button><button class="btn btn-secondary" type="button" onclick="downloadStudentImportTemplate()">📄 Download Template</button></div></div><div class="form-group" style="max-width:360px;margin-top:14px"><label>Default Section (used when Section is missing in the file)</label><select id="studentImportDefaultSection"><option value="">Select section</option></select></div><div class="small import-note"><strong>Accepted columns:</strong> Name, Email, Password, Section. CSV/TSV files can have a header row. If Password is blank, a temporary password will be generated automatically.</div><div id="studentImportStatus" class="small" style="margin-top:12px"></div><div id="studentImportPreview" class="bulk-import-table-wrap"><div class="import-empty">No students imported yet.</div></div><div class="bulk-import-actions" style="margin-top:14px"><button class="btn btn-success" type="button" id="createImportedStudentsButton" onclick="createImportedStudentAccounts()" disabled>✓ Create Imported Accounts</button><button class="btn btn-danger" type="button" onclick="clearStudentImport()">Clear Import</button></div></div></div></div>
 
 <!-- RECORDS -->
 <div id="recordsSection">
@@ -3999,19 +4021,67 @@ function showAdminDashboard(){
    The frontend never stores student passwords.
 ========================================================= */
 function showAccountMessage(message,type="success"){const success=$("studentAccountStatus"),error=$("studentAccountError");success?.classList.add("hidden");error?.classList.add("hidden");const box=type==="error"?error:success;if(box){box.textContent=message;box.classList.remove("hidden");}}
-function populateAccountSections(){const select=$("accountStudentSection");if(!select)return;const sections=new Set();Object.values(quizzes||{}).forEach(q=>(q.sections||[]).forEach(x=>{if(String(x).trim())sections.add(String(x).trim())}));const values=[...sections].sort((a,b)=>a.localeCompare(b));select.innerHTML='<option value="">Select section</option>'+values.map(x=>`<option value="${escapeHTML(x)}">${escapeHTML(x)}</option>`).join("");if(!values.length)select.innerHTML='<option value="">Add sections in Quiz Editor first</option>';}
+function populateAccountSections(){const selects=[$("accountStudentSection"),$("studentImportDefaultSection")].filter(Boolean);const sections=new Set();Object.values(quizzes||{}).forEach(q=>(q.sections||[]).forEach(x=>{if(String(x).trim())sections.add(String(x).trim())}));const values=[...sections].sort((a,b)=>a.localeCompare(b));selects.forEach(select=>{select.innerHTML='<option value="">Select section</option>'+values.map(x=>`<option value="${escapeHTML(x)}">${escapeHTML(x)}</option>`).join("");if(!values.length)select.innerHTML='<option value="">Add sections in Quiz Editor first</option>';});}
 async function loadStudentAccounts(){if(!isTeacher())return;const list=$("studentAccountsList");if(list)list.innerHTML='<div class="small">Loading student accounts...</div>';populateAccountSections();try{const data=await apiRequest("getStudentAccounts",{token:sessionStorage.getItem(SESSION_KEY)},"GET");if(!data||!data.ok){if(list)list.innerHTML='<div class="small">Student accounts could not be loaded. Deploy the matching backend first.</div>';return;}renderStudentAccounts(Array.isArray(data.students)?data.students:[]);}catch(e){console.error(e);if(list)list.innerHTML='<div class="small">Unable to connect to the student account service.</div>';}}
-function renderStudentAccounts(students){const list=$("studentAccountsList");if(!list)return;if(!students.length){list.innerHTML='<div class="small">No student accounts have been created yet.</div>';return;}list.innerHTML=students.map(student=>`<div class="account-item">
-    <div class="account-meta">
-        <strong>${escapeHTML(student.name||"Student")}</strong>
-        <div class="small">${escapeHTML(student.email||"")}</div>
-        <span class="badge badge-blue">${escapeHTML(student.section||"No section")}</span>
-    </div>
-    <button class="btn btn-danger" type="button" title="Delete student account"
-        onclick="deleteStudentAccount('${escapeHTML(student.id||"")}')">Delete Account</button>
-</div>`).join("");}
-async function createStudentAccount(){if(!isTeacher())return;const name=$("accountStudentName").value.trim(),email=gqNormalizeEmail($("accountStudentEmail").value),password=$("accountStudentPassword").value,section=$("accountStudentSection").value.trim();$("studentAccountStatus")?.classList.add("hidden");$("studentAccountError")?.classList.add("hidden");if(!name||!email||!password||!section){showAccountMessage("Please complete the name, email, password, and section.","error");return;}if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showAccountMessage("Please enter a valid email address.","error");return;}if(password.length<6){showAccountMessage("Password must be at least 6 characters.","error");return;}try{const data=await apiRequest("createStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),name,email,password,section});if(!data||!data.ok){showAccountMessage(data?.message||"Could not create the student account.","error");return;}$("accountStudentName").value="";$("accountStudentEmail").value="";$("accountStudentPassword").value="";$("accountStudentSection").value="";showAccountMessage("Student account created successfully.");await loadStudentAccounts();}catch(e){console.error(e);showAccountMessage("Server connection failed. Please try again.","error");}}
-async function deleteStudentAccount(id){if(!isTeacher()||!id)return;if(!confirm("Delete this student account? The student will no longer be able to log in."))return;try{const data=await apiRequest("deleteStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),id});if(!data||!data.ok){showAccountMessage(data?.message||"Could not delete the student account.","error");return;}showAccountMessage("Student account deleted.");await loadStudentAccounts();}catch(e){console.error(e);showAccountMessage("Server connection failed. Please try again.","error");}}
+function getSavedStudentPasswords(){
+    try{return JSON.parse(localStorage.getItem("GQ_STUDENT_PASSWORDS")||"{}");}
+    catch(e){return {}; }
+}
+function saveStudentPassword(email,password){
+    if(!email||!password)return;
+    const saved=getSavedStudentPasswords();
+    saved[gqNormalizeEmail(email)]=password;
+    localStorage.setItem("GQ_STUDENT_PASSWORDS",JSON.stringify(saved));
+}
+function removeSavedStudentPassword(email){
+    if(!email)return;
+    const saved=getSavedStudentPasswords();
+    delete saved[gqNormalizeEmail(email)];
+    localStorage.setItem("GQ_STUDENT_PASSWORDS",JSON.stringify(saved));
+}
+function renderStudentAccounts(students){
+    const list=$("studentAccountsList");
+    if(!list)return;
+    if(!students.length){list.innerHTML='<div class="small">No student accounts have been created yet.</div>';return;}
+    const savedPasswords=getSavedStudentPasswords();
+    const groups={};
+    students.forEach(student=>{const section=String(student.section||"No section").trim()||"No section";(groups[section] ||= []).push(student);});
+    const sections=Object.keys(groups).sort((a,b)=>a.localeCompare(b));
+    list.innerHTML=sections.map(section=>{
+        const members=groups[section];
+        return `<details class="account-section-folder" open>
+            <summary><span>📁 ${escapeHTML(section)}</span><span class="folder-count">${members.length} student${members.length===1?"":"s"}</span></summary>
+            <div class="folder-accounts">
+                ${members.map(student=>{
+                    const email=gqNormalizeEmail(student.email||"");
+                    const password=student.password || student.displayPassword || student.plainPassword || savedPasswords[email] || "Not available";
+                    return `<div class="account-item">
+                        <div class="account-meta">
+                            <strong>${escapeHTML(student.name||"Student")}</strong>
+                            <div class="small">${escapeHTML(student.email||"")}</div>
+                            <div class="account-password-wrap"><span class="account-password-label">PASSWORD</span><span class="account-password-value account-password">${escapeHTML(password)}</span></div>
+                        </div>
+                        <button class="btn btn-danger" type="button" title="Delete student account" onclick="deleteStudentAccount('${escapeHTML(student.id||"")}','${escapeHTML(student.email||"")}')">Delete Account</button>
+                    </div>`;
+                }).join("")}
+            </div>
+        </details>`;
+    }).join("");
+}
+let importedStudentRows=[];
+function setStudentImportStatus(message,isError=false){const box=$("studentImportStatus");if(!box)return;box.textContent=message||"";box.style.color=isError?"#b91c1c":"";}
+function normalizeImportHeader(value){return String(value||"").trim().toLowerCase().replace(/[ _-]+/g,"");}
+function parseCSVLine(line){const result=[];let value="";let quoted=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'){if(quoted&&line[i+1]==='"'){value+='"';i++;}else{quoted=!quoted;}}else if(ch===','&&!quoted){result.push(value.trim());value="";}else{value+=ch;}}result.push(value.trim());return result;}
+function parseDelimitedText(text){const lines=String(text||"").replace(/^\uFEFF/,'').split(/\r?\n/).filter(line=>line.trim()!=="");if(!lines.length)return [];const delimiter=lines[0].includes('\t')?'\t':',';const rows=lines.map(line=>delimiter==='\t'?line.split('\t').map(x=>x.trim()):parseCSVLine(line));const headers=rows[0].map(normalizeImportHeader);const known={name:["name","studentname","fullname","student"],email:["email","emailaddress"],password:["password","pass","studentpassword"],section:["section","class","classname","classsection"]};const findIndex=keys=>headers.findIndex(h=>keys.includes(h));const idx={name:findIndex(known.name),email:findIndex(known.email),password:findIndex(known.password),section:findIndex(known.section)};const hasHeader=Object.values(idx).some(v=>v>=0);const start=hasHeader?1:0;return rows.slice(start).map(cols=>({name:idx.name>=0?cols[idx.name]||"":cols[0]||"",email:idx.email>=0?cols[idx.email]||"":cols[1]||"",password:idx.password>=0?cols[idx.password]||"":cols[2]||"",section:idx.section>=0?cols[idx.section]||"":cols[3]||""})).filter(r=>r.name||r.email);}
+function makeTemporaryStudentPassword(index){return "GQ"+Math.random().toString(36).slice(2,6).toUpperCase()+String(index+1).padStart(2,"0");}
+function renderStudentImportPreview(){const box=$("studentImportPreview"),button=$("createImportedStudentsButton");if(!box)return;if(!importedStudentRows.length){box.innerHTML='<div class="import-empty">No students imported yet.</div>';if(button)button.disabled=true;return;}const defaultSection=$("studentImportDefaultSection")?.value.trim()||"";const rows=importedStudentRows.map((r,i)=>({...r,section:(r.section||defaultSection).trim(),password:r.password||makeTemporaryStudentPassword(i)}));importedStudentRows=rows;box.innerHTML=`<table class="bulk-import-table"><thead><tr><th>#</th><th>Name</th><th>Email</th><th>Password</th><th>Section</th></tr></thead><tbody>${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${escapeHTML(r.name)}</td><td>${escapeHTML(r.email)}</td><td><span class="account-password">${escapeHTML(r.password)}</span></td><td>${escapeHTML(r.section||"Missing section")}</td></tr>`).join("")}</tbody></table>`;if(button)button.disabled=false;setStudentImportStatus(`${rows.length} student${rows.length===1?"":"s"} ready to create.`);}
+async function handleStudentImportFile(event){const file=event.target.files?.[0];if(!file)return;try{const text=await file.text();let rows=[];if(file.name.toLowerCase().endsWith('.json')){const parsed=JSON.parse(text);const arr=Array.isArray(parsed)?parsed:(Array.isArray(parsed.students)?parsed.students:[]);rows=arr.map(r=>({name:r.name||r.studentName||r.fullName||"",email:r.email||r.emailAddress||"",password:r.password||r.studentPassword||"",section:r.section||r.class||r.className||""})).filter(r=>r.name||r.email);}else{rows=parseDelimitedText(text);}importedStudentRows=rows;renderStudentImportPreview();if(!rows.length)setStudentImportStatus("No student rows were found. Please check the file format.",true);}catch(e){console.error(e);importedStudentRows=[];renderStudentImportPreview();setStudentImportStatus("Could not read this file. Use CSV, TXT, TSV, or JSON with Name, Email, Password, Section columns.",true);}event.target.value="";}
+function clearStudentImport(){importedStudentRows=[];renderStudentImportPreview();setStudentImportStatus("");}
+function downloadStudentImportTemplate(){const csv='Name,Email,Password,Section\nJuan Dela Cruz,juan@example.com,Juan123,Grade 11 Gemini\nMaria Santos,maria@example.com,Maria123,Grade 11 Gemini\n';const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='student_accounts_template.csv';a.click();URL.revokeObjectURL(url);}
+$("studentImportDefaultSection")?.addEventListener("change",()=>{if(importedStudentRows.length)renderStudentImportPreview();});
+async function createImportedStudentAccounts(){if(!isTeacher()||!importedStudentRows.length)return;const defaultSection=$("studentImportDefaultSection")?.value.trim()||"";const rows=importedStudentRows.map((r,i)=>({...r,section:(r.section||defaultSection).trim(),password:r.password||makeTemporaryStudentPassword(i)}));const invalid=rows.findIndex(r=>!r.name||!r.email||!r.section||!/^([^\s@]+)@([^\s@]+)\.([^\s@]+)$/.test(r.email)||String(r.password).length<6);if(invalid>=0){setStudentImportStatus(`Please fix row ${invalid+1}: name, valid email, section, and a password of at least 6 characters are required.`,true);return;}const button=$("createImportedStudentsButton");if(button)button.disabled=true;let created=0,failed=0;for(let i=0;i<rows.length;i++){const r=rows[i];setStudentImportStatus(`Creating account ${i+1} of ${rows.length}: ${r.name}...`);try{const data=await apiRequest("createStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),name:r.name.trim(),email:gqNormalizeEmail(r.email),password:r.password,section:r.section});if(data&&data.ok){saveStudentPassword(r.email,r.password);created++;}else{failed++;}}catch(e){console.error(e);failed++;}}importedStudentRows=[];renderStudentImportPreview();setStudentImportStatus(`Finished. ${created} account${created===1?"":"s"} created${failed?`, ${failed} failed`:""}.` ,failed>0);await loadStudentAccounts();}
+async function createStudentAccount(){if(!isTeacher())return;const name=$("accountStudentName").value.trim(),email=gqNormalizeEmail($("accountStudentEmail").value),password=$("accountStudentPassword").value,section=$("accountStudentSection").value.trim();$("studentAccountStatus")?.classList.add("hidden");$("studentAccountError")?.classList.add("hidden");if(!name||!email||!password||!section){showAccountMessage("Please complete the name, email, password, and section.","error");return;}if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showAccountMessage("Please enter a valid email address.","error");return;}if(password.length<6){showAccountMessage("Password must be at least 6 characters.","error");return;}try{const data=await apiRequest("createStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),name,email,password,section});if(!data||!data.ok){showAccountMessage(data?.message||"Could not create the student account.","error");return;}saveStudentPassword(email,password);$("accountStudentName").value="";$("accountStudentEmail").value="";$("accountStudentPassword").value="";$("accountStudentSection").value="";showAccountMessage("Student account created successfully.");await loadStudentAccounts();}catch(e){console.error(e);showAccountMessage("Server connection failed. Please try again.","error");}}
+async function deleteStudentAccount(id,email=""){if(!isTeacher()||!id)return;if(!confirm("Delete this student account? The student will no longer be able to log in."))return;try{const data=await apiRequest("deleteStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),id});if(!data||!data.ok){showAccountMessage(data?.message||"Could not delete the student account.","error");return;}removeSavedStudentPassword(email);showAccountMessage("Student account deleted.");await loadStudentAccounts();}catch(e){console.error(e);showAccountMessage("Server connection failed. Please try again.","error");}}
 
 /* =========================================================
    ADMIN NAVIGATION
