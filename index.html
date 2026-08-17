@@ -282,6 +282,20 @@ select:focus{
     border-radius:999px;
     font-weight:900;
     white-space:nowrap;
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+}
+.timer-icon{
+    font-size:18px;
+    line-height:1;
+    display:inline-flex;
+    align-items:center;
+}
+.timer-counter.warning .timer-icon{animation:timerPulse 1s infinite}
+.timer-counter.danger .timer-icon{animation:timerPulse .55s infinite}
+@keyframes timerPulse{
+    50%{transform:scale(1.15)}
 }
 
 .timer-counter.warning{background:#fef3c7;color:#92400e}
@@ -794,15 +808,20 @@ Enter your information to begin.
 
 <div class="form-group">
 <label>Email Address</label>
-<input type="email" id="studentEmail" placeholder="Enter your email address" autocomplete="email">
+<input type="email" id="studentEmail" placeholder="Enter your account email" autocomplete="email">
+</div>
+
+<div class="form-group">
+<label>Password</label>
+<input type="password" id="studentPassword" placeholder="Enter your account password" autocomplete="current-password">
 </div>
 
 <div class="form-group">
 <label>Class / Section</label>
-<input
-    type="text"
-    id="studentSection"
-    placeholder="Example: Grade 10 - Rizal">
+<select id="studentSection">
+    <option value="">Select your class / section</option>
+</select>
+<div class="small" style="margin-top:6px">Select the section set by your teacher.</div>
 </div>
 
 <div style="background:#fff7ed;border:1px solid #fed7aa;padding:10px;border-radius:10px;margin-bottom:14px;font-size:13px">
@@ -904,6 +923,11 @@ Back
 <div>
 <strong id="quizHeaderTitle">Quiz</strong>
 <div id="quizStudentName" class="student-label"></div>
+</div>
+
+<div id="timerCounter" class="timer-counter hidden" aria-label="Time remaining">
+    <span class="timer-icon" aria-hidden="true">⏱️</span>
+    <span><span class="small" style="color:inherit;font-weight:800">Time Left</span> <span id="quizTimer">00:00</span></span>
 </div>
 
 <div class="security-counter">
@@ -1009,6 +1033,13 @@ Student Records
 Quiz Editor
 </button>
 
+<button
+    id="accountsButton"
+    class="btn btn-secondary"
+    onclick="showAdminSection('accounts')">
+Student Accounts
+</button>
+
 </div>
 
 <div id="adminStatus" class="success-message hidden"></div>
@@ -1111,6 +1142,59 @@ Export
 </div>
 
 
+<!-- STUDENT ACCOUNTS -->
+<div id="accountsSection" class="hidden">
+
+<div class="card" style="background:#f8fafc;border:1px solid #e2e8f0">
+<h2>Student Accounts</h2>
+<p class="small">Create login accounts for students. Each student uses the email and password you assign.</p>
+
+<div id="studentAccountStatus" class="success-message hidden"></div>
+<div id="studentAccountError" class="error hidden"></div>
+
+<div class="editor-layout">
+<div>
+<div class="form-group">
+<label>Student Name</label>
+<input type="text" id="studentAccountName" placeholder="Example: Juan Dela Cruz">
+</div>
+
+<div class="form-group">
+<label>Email</label>
+<input type="email" id="studentAccountEmail" placeholder="student@example.com" autocomplete="off">
+</div>
+
+<div class="form-group">
+<label>Password</label>
+<input type="password" id="studentAccountPassword" placeholder="Create a password" autocomplete="new-password">
+<div class="small" style="margin-top:6px">Use at least 6 characters.</div>
+</div>
+
+<div class="form-group">
+<label>Class / Section</label>
+<input type="text" id="studentAccountSection" placeholder="Example: Grade 11 - Gemini">
+</div>
+
+<div class="button-row">
+<button class="btn btn-success" type="button" onclick="createStudentAccount()">Create Student Account</button>
+<button class="btn btn-secondary" type="button" onclick="clearStudentAccountForm()">Clear</button>
+</div>
+</div>
+
+<div>
+<div class="card" style="background:#fff;border:1px solid #e2e8f0;margin:0">
+<h3>Created Accounts</h3>
+<div id="studentAccountsContainer">
+<div class="small">Loading student accounts...</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+
+
 <!-- EDITOR -->
 <div id="editorSection" class="hidden">
 
@@ -1140,6 +1224,17 @@ Export
 <textarea
     id="quizInstructionsInput"
     placeholder="Enter instructions..."></textarea>
+</div>
+
+<div class="form-group">
+<label>Allowed Classes / Sections</label>
+<textarea
+    id="quizSectionsInput"
+    placeholder="One section per line. Example:
+Grade 11 - Gemini
+Grade 11 - Libra
+Grade 11 - Taurus"></textarea>
+<div class="small" style="margin-top:6px">Students will choose from these sections when logging in.</div>
 </div>
 
 <div class="form-group">
@@ -1322,7 +1417,7 @@ Close
    Uses Google Apps Script as the central database.
    No Google Sheet is required for the quiz/record storage.
 ========================================================= */
-const API_URL = "https://script.google.com/macros/s/AKfycbygDqrrCbBRg_4MI9PemE15-KhbQ-J_IlkFM7IL5QUbIbCUfUelhUumgkL3aCbIGVV2/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbztg6XayvkfR6xvzCvPutgKwXOFW1n1P46DZQHndQ_NnZ7TWZtWTiKEaceXwJ4gmui-Sw/exec";
 
 const QUIZ_KEY = "classquiz_pro_v4_quizzes";
 const RECORD_KEY = "classquiz_pro_v4_records";
@@ -1330,13 +1425,15 @@ const SESSION_KEY = "classquiz_pro_v4_teacher_token";
 
 let currentTeacher = null;
 let currentStudentTeacherId = null;
+let currentStudentAccount = null;
 let publishedQuizzes = [];
+let studentAccounts = [];
 
 /* =========================================================
    GOOGLE SHEETS CONNECTION
    Paste your deployed Google Apps Script Web App URL here.
 ========================================================= */
-const GOOGLE_SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbygDqrrCbBRg_4MI9PemE15-KhbQ-J_IlkFM7IL5QUbIbCUfUelhUumgkL3aCbIGVV2/exec";
+const GOOGLE_SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzPWcxEf73GXPD1DPaC-VFAlnAEnsqrnvzUSG1HnlNx5J3zf0xlunldq_3nzUlUZxKtMw/exec";
 
 
 let quizzes = {};
@@ -1489,6 +1586,8 @@ function createQuiz(number){
 
         instructions:
             "Read each question carefully and answer all questions.",
+
+        sections:[],
 
         timerMinutes:0,
 
@@ -1688,6 +1787,13 @@ function repairQuiz(quiz,number){
         quiz.instructions = "";
     }
 
+    if(!Array.isArray(quiz.sections)){
+        quiz.sections = [];
+    }
+    quiz.sections = [...new Set(
+        quiz.sections.map(section => String(section || "").trim()).filter(Boolean)
+    )];
+
     quiz.timerMinutes = Math.max(0, Math.floor(Number(quiz.timerMinutes) || 0));
 
     if(quiz.questionSelectionMode !== "random"){
@@ -1812,13 +1918,19 @@ async function loadTeacherData(){
         });
 
         Object.keys(records).forEach(key=>{
-            records[key] = dedupeRecordsByAttempt(dedupeRecordsById(records[key]));
+            records[key] = dedupeStudentRecords(dedupeRecordsByAttempt(dedupeRecordsById(records[key])));
         });
 
-        for(let i=1;i<=10;i++){
-            if(!quizzes[i]) quizzes[i] = createQuiz(i);
-            if(!records[i]) records[i] = [];
+        if(!Object.keys(quizzes).length){
+            quizzes[1] = createQuiz(1);
         }
+
+        Object.keys(quizzes).forEach(key=>{
+            const number = Number(key);
+            if(Number.isFinite(number) && !records[number]){
+                records[number] = [];
+            }
+        });
 
         Object.keys(quizzes).forEach(key=>{
             const number = Number(key);
@@ -1847,6 +1959,144 @@ async function saveQuizToGoogleSheets(quiz){
     }catch(error){
         console.error(error);
         return false;
+    }
+}
+
+async function loadStudentAccounts(){
+    if(!isTeacher()) return [];
+    try{
+        const data = await apiRequest("getStudentAccounts", {
+            token:sessionStorage.getItem(SESSION_KEY)
+        }, "GET");
+        studentAccounts = data && data.ok && Array.isArray(data.accounts) ? data.accounts : [];
+    }catch(error){
+        console.error("Could not load student accounts:", error);
+        studentAccounts = [];
+    }
+    renderStudentAccounts();
+    return studentAccounts;
+}
+
+function renderStudentAccounts(){
+    const box = $("studentAccountsContainer");
+    if(!box) return;
+
+    if(!studentAccounts.length){
+        box.innerHTML = '<div class="small">No student accounts yet.</div>';
+        return;
+    }
+
+    box.innerHTML = studentAccounts.map(account => `
+        <div style="padding:12px;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:8px;background:#f8fafc">
+            <strong>${escapeHTML(account.name || "Student")}</strong>
+            <div class="small">Email: ${escapeHTML(account.email || "—")}</div>
+            <div class="small">Section: ${escapeHTML(account.section || "—")}</div>
+            <div style="margin-top:8px">
+                <button class="btn btn-danger" type="button" onclick="deleteStudentAccount('${String(account.id || account.email || "").replace(/'/g,"\\'")}')">Delete</button>
+            </div>
+        </div>
+    `).join("");
+}
+
+function clearStudentAccountForm(){
+    ["studentAccountName","studentAccountEmail","studentAccountPassword","studentAccountSection"]
+        .forEach(id=>{ if($(id)) $(id).value=""; });
+    $("studentAccountError")?.classList.add("hidden");
+    $("studentAccountStatus")?.classList.add("hidden");
+}
+
+async function createStudentAccount(){
+    if(!isTeacher()) return openTeacherLogin();
+
+    const name = $("studentAccountName").value.trim();
+    const email = gqNormalizeEmail($("studentAccountEmail").value);
+    const password = $("studentAccountPassword").value;
+    const section = $("studentAccountSection").value.trim();
+    const error = $("studentAccountError");
+    const status = $("studentAccountStatus");
+
+    error.classList.add("hidden");
+    status.classList.add("hidden");
+
+    if(!name || !email || !password || !section){
+        error.textContent = "Please complete all student account fields.";
+        error.classList.remove("hidden");
+        return;
+    }
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+        error.textContent = "Please enter a valid email address.";
+        error.classList.remove("hidden");
+        return;
+    }
+    if(password.length < 6){
+        error.textContent = "Student password must be at least 6 characters.";
+        error.classList.remove("hidden");
+        return;
+    }
+
+    try{
+        const data = await apiRequest("createStudentAccount", {
+            token:sessionStorage.getItem(SESSION_KEY),
+            name,
+            email,
+            password,
+            section
+        });
+
+        if(!data || !data.ok){
+            error.textContent = data && data.message
+                ? data.message
+                : "Could not create the student account. The server must support createStudentAccount.";
+            error.classList.remove("hidden");
+            return;
+        }
+
+        clearStudentAccountForm();
+        status.textContent = "Student account created successfully.";
+        status.classList.remove("hidden");
+        await loadStudentAccounts();
+    }catch(e){
+        error.textContent = "Server connection failed. Please try again.";
+        error.classList.remove("hidden");
+    }
+}
+
+async function deleteStudentAccount(accountId){
+    if(!isTeacher() || !accountId) return;
+    if(!confirm("Delete this student account?")) return;
+
+    try{
+        const data = await apiRequest("deleteStudentAccount", {
+            token:sessionStorage.getItem(SESSION_KEY),
+            accountId
+        });
+
+        if(!data || !data.ok){
+            alert(data && data.message ? data.message : "Could not delete the student account.");
+            return;
+        }
+        await loadStudentAccounts();
+    }catch(e){
+        alert("Server connection failed. Please try again.");
+    }
+}
+
+async function authenticateStudentAccount(email, password){
+    try{
+        const data = await apiRequest("loginStudent", {
+            teacherId:currentStudentTeacherId,
+            email,
+            password
+        });
+        return data && data.ok ? data : {
+            ok:false,
+            message:data && data.message ? data.message : "Invalid student email or password."
+        };
+    }catch(e){
+        return {
+            ok:false,
+            message:"Student account login failed. Please check your internet connection."
+        };
     }
 }
 
@@ -1962,6 +2212,8 @@ function selectQuiz(item){
     $("studentQuizTitle").textContent = currentQuiz.title;
     $("studentName").value = "";
     $("studentEmail").value = "";
+    if($("studentPassword")) $("studentPassword").value = "";
+    populateStudentSections(currentQuiz);
     $("studentSection").value = "";
     $("studentQuizCode").value = "";
     $("studentError").classList.add("hidden");
@@ -2019,6 +2271,20 @@ function gqPresentationForAttempt(email, quizNumber, existingRecord=null){
     return local?.presentation || existingRecord?.presentation || null;
 }
 
+function populateStudentSections(quiz){
+    const select = $("studentSection");
+    if(!select) return;
+
+    const sections = Array.isArray(quiz?.sections) ? quiz.sections.filter(Boolean) : [];
+    select.innerHTML =
+        '<option value="">Select your class / section</option>' +
+        sections.map(section => `<option value="${escapeHTML(section)}">${escapeHTML(section)}</option>`).join("");
+
+    if(!sections.length){
+        select.innerHTML = '<option value="">No sections have been set by the teacher</option>';
+    }
+}
+
 async function startQuiz(){
 
     const name =
@@ -2026,6 +2292,8 @@ async function startQuiz(){
 
     const email =
         gqNormalizeEmail($("studentEmail") ? $("studentEmail").value : "");
+    const password =
+        $("studentPassword") ? $("studentPassword").value : "";
 
     const section =
         $("studentSection").value.trim();
@@ -2062,10 +2330,26 @@ async function startQuiz(){
         return;
     }
 
+    if(!password){
+        error.textContent =
+            "Please enter your student account password.";
+        error.classList.remove("hidden");
+        return;
+    }
+
     if(!section){
 
         error.textContent =
-            "Please enter your class / section.";
+            "Please select your class / section.";
+
+        error.classList.remove("hidden");
+
+        return;
+    }
+
+    if(Array.isArray(quiz.sections) && quiz.sections.length && !quiz.sections.includes(section)){
+        error.textContent =
+            "Please select a valid class / section.";
 
         error.classList.remove("hidden");
 
@@ -2097,6 +2381,23 @@ async function startQuiz(){
         return;
     }
 
+    const account = await authenticateStudentAccount(email, password);
+    if(!account.ok){
+        error.textContent = account.message || "Invalid student email or password.";
+        error.classList.remove("hidden");
+        return;
+    }
+
+    currentStudentAccount = account.student || {name, email, section};
+    const accountName = String(currentStudentAccount.name || name).trim();
+    const accountSection = String(currentStudentAccount.section || section).trim();
+
+    if(accountSection && accountSection !== section){
+        error.textContent = "Your account is assigned to " + accountSection + ". Please select that section.";
+        error.classList.remove("hidden");
+        return;
+    }
+
     const guard = await gqCheckBeforeStart(email, quiz.id);
     if(!guard.ok){
         error.textContent = guard.message;
@@ -2120,9 +2421,9 @@ async function startQuiz(){
         return;
     }
 
-    currentStudent = name;
+    currentStudent = accountName;
     currentStudentEmail = email;
-    currentStudentSection = section;
+    currentStudentSection = accountSection;
 
     window.gqStudentEmail = email;
     currentQuiz = clone(quiz);
@@ -2137,37 +2438,11 @@ async function startQuiz(){
     gqApplyPresentation(currentQuiz, attemptPresentation);
 
     /*
-       IMPORTANT: Refreshing/reopening the quiz link while an attempt is
-       already in progress MUST remain the SAME attempt. Never create a new
-       attempt just because the browser lost its local marker.
+       Every approved login is a NEW attempt.
+       Do not reuse or resume a previous active attempt.
     */
-    if(guard.resume){
-        if(localExistingAttempt){
-            attemptId = localExistingAttempt.attemptId;
-        }else{
-            // Recover the server's existing attempt instead of creating a new one.
-            const recovered = {
-                attemptId: guard.serverAttemptId || guard.attempt?.attemptId || generateId("attempt"),
-                email: gqNormalizeEmail(email),
-                quizNumber: Number(currentStudentQuiz),
-                attemptNumber: Number(guard.attemptNumber || 1),
-                maxAttempts: 2,
-                student: currentStudent || "",
-                section: currentStudentSection || "",
-                startedAt: guard.attempt?.startedAt || new Date().toISOString(),
-                lastActivityAt: new Date().toISOString(),
-                lastAction: "Resumed quiz after refresh",
-                status: "in_progress",
-                currentQuestion: Number(guard.attempt?.currentQuestion || 1)
-            };
-            gqSaveAttempt(recovered);
-            attemptId = recovered.attemptId;
-        }
-    }else{
-        // No active attempt exists: this is a genuinely new attempt.
-        gqStartLocalAttempt(email, currentStudentQuiz, attemptNumber);
-        attemptId = gqGetAttempt(email, currentStudentQuiz)?.attemptId || attemptId;
-    }
+    gqStartLocalAttempt(email, currentStudentQuiz, attemptNumber);
+    attemptId = gqGetAttempt(email, currentStudentQuiz)?.attemptId || attemptId;
 
     const activeAttemptData = gqGetAttempt(email, currentStudentQuiz) || {};
     activeAttemptData.presentation = attemptPresentation;
@@ -2184,50 +2459,54 @@ async function startQuiz(){
 
     records[currentStudentQuiz] = records[currentStudentQuiz] || [];
 
-    // If this is the same active attempt being resumed, reuse the existing
-    // dashboard record instead of creating a second row.
-    let existingAttemptRecord = null;
-    if(guard.resume && attemptId){
-        existingAttemptRecord = records[currentStudentQuiz].find(r =>
-            String(r.attemptId || "") === String(attemptId) &&
-            String(r.email || "").trim().toLowerCase() === currentStudentEmail
-        ) || null;
-    }
+    // Keep ONE dashboard row per student + quiz.
+    // A later login updates the student's existing row instead of adding another row.
+    const normalizedStudentEmail = gqNormalizeEmail(currentStudentEmail);
+    let existingAttemptRecord = records[currentStudentQuiz].find(r =>
+        String(r.email || "").trim().toLowerCase() === normalizedStudentEmail
+    ) || null;
 
-    const isResuming = !!existingAttemptRecord;
+    const isUpdatingStudentRecord = !!existingAttemptRecord;
 
     const savedAttemptState = gqGetAttempt(email, currentStudentQuiz);
     answers = Array.isArray(savedAttemptState?.answers) && savedAttemptState.answers.length === currentQuiz.questions.length
         ? clone(savedAttemptState.answers)
         : new Array(currentQuiz.questions.length).fill(null);
 
-    securityEvents = isResuming
+    securityEvents = isUpdatingStudentRecord
         ? Number(existingAttemptRecord.securityEvents || 0)
         : 0;
 
     quizStarted = true;
     quizSubmitted = false;
     submitting = false;
+    quizStartedAt = new Date().toISOString();
 
-    quizStartedAt = isResuming
-        ? (existingAttemptRecord.startedAt || new Date().toISOString())
-        : new Date().toISOString();
-
-    currentRecordId = isResuming
+    currentRecordId = isUpdatingStudentRecord
         ? existingAttemptRecord.id
-        : generateId("record");
+        : studentRecordId(currentStudentEmail, currentStudentQuiz);
 
-    // Create the dashboard record only for a new attempt. When an active
-    // attempt is resumed, update the same record ID so one attempt = one row.
-    const startRecord = isResuming
+    const startRecord = isUpdatingStudentRecord
         ? Object.assign(existingAttemptRecord, {
             student:currentStudent,
             email:currentStudentEmail,
             section:currentStudentSection,
-            lastAction:"Resumed quiz",
+            attemptNumber,
+            maxAttempts:2,
+            loginCount:Number(existingAttemptRecord.loginCount || 1) + 1,
+            lastAction:"Started another attempt",
             lastActivityAt:new Date().toISOString(),
             securityEvents,
-            status:"In Progress"
+            status:"In Progress",
+            startedAt:quizStartedAt,
+            submittedAt:null,
+            correct:0,
+            percentage:0,
+            answers:clone(answers),
+            detailedAnswers:currentQuiz.questions.map((question,index)=>({
+                number:index+1, type:question.type, question:question.question,
+                studentAnswer:null, selected:null, correct:null, isCorrect:false
+            }))
         })
         : {
             id:currentRecordId,
@@ -2251,6 +2530,9 @@ async function startQuiz(){
             lastActivityAt:quizStartedAt,
             answeredCount:0,
             currentQuestion:1,
+            attemptNumber,
+            maxAttempts:2,
+            loginCount:1,
             presentation:attemptPresentation,
             answers:clone(answers),
             detailedAnswers:currentQuiz.questions.map((question,index)=>({
@@ -2259,11 +2541,13 @@ async function startQuiz(){
             }))
         };
 
-    if(!isResuming){
+    if(!isUpdatingStudentRecord){
         records[currentStudentQuiz].push(startRecord);
     }
 
-    records[currentStudentQuiz] = dedupeRecordsByAttempt(dedupeRecordsById(records[currentStudentQuiz]));
+    records[currentStudentQuiz] = dedupeStudentRecords(
+        dedupeRecordsByAttempt(dedupeRecordsById(records[currentStudentQuiz]))
+    );
     saveRecords();
     sendToGoogleSheets(startRecord, "save").then(response=>{
         if(!response || !response.ok) console.error("Could not save in-progress record", response);
@@ -2956,6 +3240,46 @@ function dedupeRecordsByAttempt(list){
     return Array.from(map.values());
 }
 
+function studentRecordId(email, quizNumber){
+    const normalized = gqNormalizeEmail(email);
+    let hash = 0;
+    const value = normalized + "|" + Number(quizNumber || 0);
+
+    for(let i=0;i<value.length;i++){
+        hash = ((hash << 5) - hash) + value.charCodeAt(i);
+        hash |= 0;
+    }
+
+    return "student_" + Math.abs(hash) + "_" + Number(quizNumber || 0);
+}
+
+function dedupeStudentRecords(list){
+    const map = new Map();
+
+    (Array.isArray(list) ? list : []).forEach(record=>{
+        if(!record) return;
+        const email = String(record.email || "").trim().toLowerCase();
+        const key = [String(record.teacherId || ""), Number(record.quizNumber || 0), email].join("|");
+
+        if(!email){
+            map.set(String(record.id || generateId("record")), record);
+            return;
+        }
+
+        const old = map.get(key);
+        if(!old){
+            map.set(key, record);
+            return;
+        }
+
+        const oldTime = new Date(old.lastActivityAt || old.submittedAt || old.startedAt || 0).getTime();
+        const newTime = new Date(record.lastActivityAt || record.submittedAt || record.startedAt || 0).getTime();
+        if(newTime >= oldTime) map.set(key, record);
+    });
+
+    return Array.from(map.values());
+}
+
 function countStudentAttempts(list, email){
     const normalized = String(email || "").trim().toLowerCase();
     const matching = (Array.isArray(list) ? list : []).filter(r=>
@@ -2992,7 +3316,7 @@ async function refreshRecordsFromGoogleSheets(){
         return false;
     }
 
-    records[currentQuizNumber] = dedupeRecordsByAttempt(dedupeRecordsById(remote));
+    records[currentQuizNumber] = dedupeStudentRecords(dedupeRecordsByAttempt(dedupeRecordsById(remote)));
     saveRecords();
     renderRecords();
     showAdminStatus("Student records refreshed.");
@@ -3018,7 +3342,7 @@ function startLiveMonitor(){
     liveMonitorInterval=setInterval(async()=>{
         const remote=await loadRecordsFromGoogleSheets(currentQuizNumber);
         if(remote){
-            const clean = dedupeRecordsByAttempt(dedupeRecordsById(remote));
+            const clean = dedupeStudentRecords(dedupeRecordsByAttempt(dedupeRecordsById(remote)));
             records[currentQuizNumber]=clean;
             saveRecords();
             renderRecords();
@@ -3839,6 +4163,7 @@ async function teacherLogout(){
     currentTeacher = null;
     quizzes = {};
     records = {};
+    studentAccounts = [];
     await loadPublishedQuizzes();
     showScreen("homeScreen");
 }
@@ -3866,44 +4191,32 @@ function showAdminSection(section){
         return;
     }
 
+    $("recordsSection").classList.add("hidden");
+    $("editorSection").classList.add("hidden");
+    $("accountsSection").classList.add("hidden");
+
+    $("recordsButton").className = "btn btn-secondary";
+    $("editorButton").className = "btn btn-secondary";
+    $("accountsButton").className = "btn btn-secondary";
+
     if(section === "records"){
-
-        $("recordsSection")
-            .classList
-            .remove("hidden");
-
-        $("editorSection")
-            .classList
-            .add("hidden");
-
-        $("recordsButton").className =
-            "btn btn-primary";
-
-        $("editorButton").className =
-            "btn btn-secondary";
-
+        $("recordsSection").classList.remove("hidden");
+        $("recordsButton").className = "btn btn-primary";
         renderRecords();
-
-    }else{
-
-        $("recordsSection")
-            .classList
-            .add("hidden");
-
-        $("editorSection")
-            .classList
-            .remove("hidden");
-
-        $("recordsButton").className =
-            "btn btn-secondary";
-
-        $("editorButton").className =
-            "btn btn-primary";
-
-        loadEditor();
+        return;
     }
-}
 
+    if(section === "accounts"){
+        $("accountsSection").classList.remove("hidden");
+        $("accountsButton").className = "btn btn-primary";
+        loadStudentAccounts();
+        return;
+    }
+
+    $("editorSection").classList.remove("hidden");
+    $("editorButton").className = "btn btn-primary";
+    loadEditor();
+}
 
 function renderAdminQuizTabs(){
     const container = $("adminQuizTabs");
@@ -3911,12 +4224,102 @@ function renderAdminQuizTabs(){
 
     getQuizNumbers().forEach(i=>{
         const quiz = getQuiz(i);
+
+        const wrap = document.createElement("div");
+        wrap.style.display = "inline-flex";
+        wrap.style.alignItems = "stretch";
+        wrap.style.marginRight = "8px";
+        wrap.style.marginBottom = "8px";
+
         const button = document.createElement("button");
         button.className = "quiz-tab";
+        button.style.marginRight = "0";
         button.innerHTML = `Quiz ${i}<br><span class="small">${quiz.published ? "PUBLISHED" : "DRAFT"}</span>`;
         button.onclick = ()=>selectAdminQuiz(i);
-        container.appendChild(button);
+
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.title = "Delete Quiz " + i;
+        deleteButton.setAttribute("aria-label", "Delete Quiz " + i);
+        deleteButton.textContent = "×";
+        deleteButton.style.marginLeft = "4px";
+        deleteButton.style.minWidth = "42px";
+        deleteButton.style.border = "0";
+        deleteButton.style.borderRadius = "10px";
+        deleteButton.style.background = "#fee2e2";
+        deleteButton.style.color = "#b91c1c";
+        deleteButton.style.fontSize = "20px";
+        deleteButton.style.fontWeight = "800";
+        deleteButton.style.cursor = "pointer";
+        deleteButton.onclick = (event)=>{
+            event.stopPropagation();
+            deleteQuizNumber(i);
+        };
+
+        wrap.appendChild(button);
+        wrap.appendChild(deleteButton);
+        container.appendChild(wrap);
     });
+}
+
+async function deleteQuizNumber(number){
+    if(!isTeacher()){
+        openTeacherLogin();
+        return;
+    }
+
+    const quiz = getQuiz(number);
+    const label = quiz.title || ("Quiz " + number);
+
+    if(!confirm(
+        "Delete Quiz " + number + " (" + label + ")?\n\n" +
+        "This will remove the quiz from your teacher account and delete its saved results. " +
+        "This action cannot be undone."
+    )){
+        return;
+    }
+
+    const token = sessionStorage.getItem(SESSION_KEY);
+
+    try{
+        const response = await apiRequest("deleteQuiz", {
+            token: token,
+            quizNumber: number
+        });
+
+        if(!response || !response.ok){
+            showAdminStatus(
+                (response && response.message) ||
+                "The quiz could not be deleted from the server."
+            );
+            return;
+        }
+
+        delete quizzes[number];
+        delete records[number];
+
+        saveQuizzes();
+        saveRecords();
+
+        const remaining = getQuizNumbers();
+
+        if(!remaining.length){
+            quizzes[1] = createQuiz(1);
+            records[1] = [];
+            currentQuizNumber = 1;
+        }else if(Number(currentQuizNumber) === Number(number)){
+            currentQuizNumber = remaining[0];
+        }
+
+        renderAdminQuizTabs();
+        selectAdminQuiz(currentQuizNumber);
+        await loadPublishedQuizzes();
+
+        showAdminStatus("Quiz " + number + " was deleted.");
+    }catch(error){
+        console.error("Delete quiz failed:", error);
+        showAdminStatus("The quiz could not be deleted. Please try again.");
+    }
 }
 
 function selectAdminQuiz(number){
@@ -3978,6 +4381,9 @@ function loadEditor(){
 
     $("quizInstructionsInput").value =
         quiz.instructions || "";
+
+    $("quizSectionsInput").value =
+        Array.isArray(quiz.sections) ? quiz.sections.join("\n") : "";
 
     $("quizTimerInput").value =
         Number(quiz.timerMinutes) || 0;
@@ -5005,6 +5411,9 @@ async function saveQuiz(){
     quiz.title = $("quizTitleInput").value.trim() || "Quiz " + currentQuizNumber;
     quiz.code = $("quizCodeInput").value.trim().toUpperCase();
     quiz.instructions = $("quizInstructionsInput").value;
+    quiz.sections = [...new Set(
+        $("quizSectionsInput").value.split(/\r?\n/).map(section => section.trim()).filter(Boolean)
+    )];
     quiz.timerMinutes = Math.max(0, Math.floor(Number($("quizTimerInput").value) || 0));
     quiz.questionSelectionMode = "all";
     quiz.questionCount = 0;
@@ -5119,7 +5528,9 @@ async function refreshQuizData(){
 ========================================================= */
 
 function renderRecords(){
-    records[currentQuizNumber] = dedupeRecordsByAttempt(dedupeRecordsById(getRecords(currentQuizNumber)));
+    records[currentQuizNumber] = dedupeStudentRecords(
+        dedupeRecordsByAttempt(dedupeRecordsById(getRecords(currentQuizNumber)))
+    );
 
     if(!isTeacher()){
         return;
@@ -5385,7 +5796,7 @@ function renderRecords(){
                             }
 
                         </span>
-                        <div class="small">Logins: ${countStudentAttempts(getRecords(currentQuizNumber), record.email)}</div>
+                        <div class="small">Logins/Attempts: ${Math.max(Number(record.loginCount || 1), countStudentAttempts(getRecords(currentQuizNumber), record.email))}</div>
 
                     </td>
 
@@ -6247,89 +6658,62 @@ function gqClearAttempt(email, quizNumber){
 /* This guard prevents accidental duplicate starts on the same browser.
    The server/database must also enforce the same email+quiz rule for
    protection across devices. */
-async function gqServerAttemptCheck(payload){
-    let lastError = null;
-    for(let attempt=1; attempt<=3; attempt++){
-        try{
-            const result = await apiRequest("checkStudentAttempt", {...payload, _ts:Date.now()}, "GET");
-            if(result && result.ok) return result;
-            lastError = new Error((result && result.message) || "Server returned no valid attempt status.");
-        }catch(e){
-            lastError = e;
-        }
-        if(attempt < 3) await new Promise(r=>setTimeout(r, 700 * attempt));
-    }
-    throw lastError || new Error("Attempt verification failed.");
-}
-
 async function gqCheckBeforeStart(email, quizNumber){
     email = gqNormalizeEmail(email);
+    quizNumber = Number(quizNumber);
     if(!email) return {ok:false, message:"Please enter your email address."};
 
-    const existing = gqGetAttempt(email, quizNumber);
+    /* TWO-ATTEMPT LIMIT
+       The student keeps ONE dashboard record, so loginCount is used to track
+       how many times the student has started this quiz. */
+    const localRecords = (typeof getRecords === "function") ? getRecords(quizNumber) : [];
+    const localStudentRecord = (Array.isArray(localRecords) ? localRecords : []).find(r =>
+        gqNormalizeEmail(r.email) === email
+    );
+    const localLoginCount = Number(localStudentRecord?.loginCount || 0);
+    const localAttemptNumber = Number(localStudentRecord?.attemptNumber || 0);
 
-    // FIRST ask the server. This makes teacher deletion authoritative: if
-    // the teacher deleted this student's records, the server reports zero
-    // attempts and we clear the stale browser marker below.
+    // If two attempts have already been used, block the third login.
+    if(localLoginCount >= 2 || localAttemptNumber >= 2){
+        return {
+            ok:false,
+            message:"You have already used your 2 attempts for this quiz. You cannot log in again."
+        };
+    }
+
     try{
-        const server = await gqServerAttemptCheck({
+        const server = await apiRequest("checkStudentAttempt", {
             teacherId: currentStudentTeacherId,
-            quizNumber: Number(quizNumber),
+            quizNumber,
             email
-        });
+        }, "GET");
 
         if(server && server.ok){
-            if(server.resume){
+            if(server.reason === "max_attempts" || Number(server.attemptCount || 0) >= 2){
                 return {
-                    ok:true,
-                    resume:true,
-                    attempt:existing,
-                    serverAttemptId:server.attemptId,
-                    attemptNumber:server.attemptNumber
+                    ok:false,
+                    message:server.message || "You have already used your 2 attempts for this quiz. You cannot log in again."
                 };
             }
 
             if(Number(server.attemptCount || 0) === 0){
-                // The teacher deleted the previous record(s). Release the
-                // old local lock so this email can start a fresh attempt.
                 gqClearAttempt(email, quizNumber);
                 return {ok:true, newAttempt:true, resetByDeletion:true, attemptNumber:1};
             }
 
-            if(server.reason === "max_attempts"){
-                return {ok:false, message:server.message};
-            }
-
-            // Server says there are fewer than two existing attempts.
-            // Prefer server state over a stale local completed marker.
-            if(existing && existing.status === "completed"){
-                const nextNumber = Number(server.attemptNumber || 2);
-                return {ok:true, newAttempt:true, previous:existing, attemptNumber:nextNumber};
-            }
-
-            return {ok:true, newAttempt:true, attemptNumber:Number(server.attemptNumber || 1)};
+            return {
+                ok:true,
+                newAttempt:true,
+                attemptNumber:Number(server.attemptNumber || (Number(server.attemptCount || 0) + 1))
+            };
         }
     }catch(error){
-        console.warn("Student attempt server check failed; local marker will NOT be used to block the student.", error);
-
-        // IMPORTANT: localStorage is only a resume aid. It must never be the
-        // authority for the 2-attempt limit because a teacher may have deleted
-        // the student's server records. If the server cannot be reached, do
-        // not display a false "both attempts used" message based on stale
-        // browser data. Ask the student to retry verification instead.
-        return {
-            ok:false,
-            retryVerification:true,
-            message:"We could not verify your quiz attempts with the server. Please click Log In again to retry. Your browser's old attempt data will not be used to block you."
-        };
+        console.warn("Student attempt server check failed.", error);
     }
 
-    // If the server returned no usable answer, never trust a stale browser
-    // completion marker for the attempt limit.
     return {
         ok:false,
-        retryVerification:true,
-        message:"Unable to verify your quiz attempt. Please try again."
+        message:"Unable to verify your quiz attempts. Please check your internet connection and try again."
     };
 }
 
