@@ -287,6 +287,9 @@ select:focus{
 .account-section-folder summary{list-style:none;cursor:pointer;padding:14px 16px;background:#f8fafc;font-weight:900;display:flex;justify-content:space-between;align-items:center;gap:12px}
 .account-section-folder summary::-webkit-details-marker{display:none}
 .account-section-folder summary:hover{background:#eff6ff}
+.folder-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.folder-title{display:flex;align-items:center;gap:8px}
+.folder-delete-btn{padding:6px 10px;font-size:12px;white-space:nowrap}
 .account-section-folder .folder-count{font-size:12px;color:var(--muted);font-weight:800}
 .account-section-folder .folder-accounts{padding:10px}
 .account-password{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;letter-spacing:.02em}
@@ -4047,6 +4050,7 @@ function removeSavedStudentPassword(email){
     localStorage.setItem("GQ_STUDENT_PASSWORDS",JSON.stringify(saved));
 }
 function renderStudentAccounts(students){
+    window.__gqStudentAccounts = Array.isArray(students) ? students : [];
     const list=$("studentAccountsList");
     if(!list)return;
     if(!students.length){list.innerHTML='<div class="small">No student accounts have been created yet.</div>';return;}
@@ -4056,8 +4060,15 @@ function renderStudentAccounts(students){
     const sections=Object.keys(groups).sort((a,b)=>a.localeCompare(b));
     list.innerHTML=sections.map(section=>{
         const members=groups[section];
+        const sectionArg = encodeURIComponent(section);
         return `<details class="account-section-folder" open>
-            <summary><span>📁 ${escapeHTML(section)}</span><span class="folder-count">${members.length} student${members.length===1?"":"s"}</span></summary>
+            <summary>
+                <span class="folder-title">📁 ${escapeHTML(section)}</span>
+                <span class="folder-actions">
+                    <span class="folder-count">${members.length} student${members.length===1?"":"s"}</span>
+                    <button class="btn btn-danger folder-delete-btn" type="button" title="Delete this section folder and all student accounts inside it" onclick="event.preventDefault();event.stopPropagation();deleteStudentAccountFolder(decodeURIComponent('${sectionArg}'))">Delete Folder</button>
+                </span>
+            </summary>
             <div class="folder-accounts">
                 ${members.map(student=>{
                     const email=gqNormalizeEmail(student.email||"");
@@ -4074,6 +4085,25 @@ function renderStudentAccounts(students){
             </div>
         </details>`;
     }).join("");
+}
+async function deleteStudentAccountFolder(section){
+    if(!isTeacher()||!section)return;
+    const accounts=Array.isArray(window.__gqStudentAccounts)?window.__gqStudentAccounts:[];
+    const members=accounts.filter(student=>String(student.section||"No section").trim()===section);
+    if(!members.length){await loadStudentAccounts();return;}
+    if(!confirm(`Delete the "${section}" folder and all ${members.length} student account${members.length===1?"":"s"} inside it?\n\nThis will permanently delete these student accounts. This action cannot be undone.`))return;
+    showAccountMessage(`Deleting ${members.length} account${members.length===1?"":"s"} from ${section}...`);
+    let failed=0;
+    for(const student of members){
+        try{
+            const data=await apiRequest("deleteStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),id:student.id});
+            if(data&&data.ok){removeSavedStudentPassword(student.email||"");}
+            else failed++;
+        }catch(e){console.error(e);failed++;}
+    }
+    if(failed){showAccountMessage(`${failed} account${failed===1?"":"s"} could not be deleted. Please try again.`,"error");}
+    else showAccountMessage(`Section folder "${section}" and all student accounts inside it were deleted.`);
+    await loadStudentAccounts();
 }
 let importedStudentRows=[];
 function setStudentImportStatus(message,isError=false){const box=$("studentImportStatus");if(!box)return;box.textContent=message||"";box.style.color=isError?"#b91c1c":"";}
@@ -5503,11 +5533,15 @@ function renderRecords(){
             new Date(a.submittedAt || a.startedAt)
         );
 
+        const sectionArg = encodeURIComponent(section);
         return `
             <details class="record-section-folder" open>
                 <summary>
                     <span class="record-folder-title">📁 ${escapeHTML(section)}</span>
-                    <span class="record-folder-count">${sectionRecords.length} record${sectionRecords.length===1?"":"s"}</span>
+                    <span class="folder-actions">
+                        <span class="record-folder-count">${sectionRecords.length} record${sectionRecords.length===1?"":"s"}</span>
+                        <button class="btn btn-danger folder-delete-btn" type="button" title="Delete all quiz records in this section" onclick="event.preventDefault();event.stopPropagation();deleteRecordFolder(decodeURIComponent('${sectionArg}'))">Delete Folder</button>
+                    </span>
                 </summary>
                 <div class="record-folder-body">
                     <div class="records-wrap">
@@ -6136,6 +6170,40 @@ async function deleteRecord(id){
         }
     }
 
+    startLiveMonitor();
+}
+
+async function deleteRecordFolder(section){
+    if(!isTeacher()||!section)return;
+    const recordsForQuiz=getRecords(currentQuizNumber);
+    const members=recordsForQuiz.filter(r=>String(r.section||"No section").trim()===section);
+    if(!members.length){renderRecords();return;}
+    const emails=[...new Set(members.map(r=>String(r.email||"").trim().toLowerCase()).filter(Boolean))];
+    if(!confirm(`Delete the "${section}" folder and all ${members.length} quiz record${members.length===1?"":"s"} inside it?\n\nThis will delete all attempts for ${emails.length} student${emails.length===1?"":"s"} in this quiz and reset their attempt limits.\n\nThis action cannot be undone.`))return;
+    clearInterval(liveMonitorInterval);
+    showAdminStatus(`Deleting records in ${section}...`);
+    let failed=[];
+    for(const record of members){
+        try{
+            const response=await sendToGoogleSheets(record,"delete");
+            if(!response||!response.ok)failed.push(record.id);
+        }catch(e){console.error(e);failed.push(record.id);}
+    }
+    if(failed.length){
+        showAdminStatus("Some records could not be deleted.");
+        alert(`${failed.length} record${failed.length===1?"":"s"} could not be deleted. Please deploy the latest backend and try again.`);
+        startLiveMonitor();
+        return;
+    }
+    records[currentQuizNumber]=recordsForQuiz.filter(r=>String(r.section||"No section").trim()!==section);
+    emails.forEach(email=>{if(typeof gqClearAttempt==="function")gqClearAttempt(email,currentQuizNumber);});
+    saveRecords();
+    currentRecordId=null;
+    closeRecordDetail();
+    renderRecords();
+    showAdminStatus(`Section folder "${section}" and its quiz records were deleted.`);
+    const verify=await loadRecordsFromGoogleSheets(currentQuizNumber);
+    if(verify){records[currentQuizNumber]=verify;saveRecords();renderRecords();}
     startLiveMonitor();
 }
 
