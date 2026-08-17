@@ -1281,6 +1281,11 @@ Close
    No Google Sheet is required for the quiz/record storage.
 ========================================================= */
 const API_URL = "https://script.google.com/macros/s/AKfycbw5FBEYfHn7vhkj15RPH7ems--ABJi5WMaD8zHG1icjb9bP5YazPRcFkRneNBy3Jgi02g/exec";
+const PUBLISHED_CACHE_KEY = "garthquiz_published_cache_v1";
+const PUBLISHED_CACHE_TTL = 30000;
+const TEACHER_CACHE_KEY = "garthquiz_teacher_cache_v1";
+const TEACHER_CACHE_TTL = 10000;
+let teacherDataRefreshPromise = null;
 
 const QUIZ_KEY = "classquiz_pro_v4_quizzes";
 const RECORD_KEY = "classquiz_pro_v4_records";
@@ -1746,7 +1751,7 @@ async function apiRequest(action, data = {}, method = "POST"){
         const qs = new URLSearchParams(payload).toString();
         response = await fetch(url + "?" + qs, {
             method:"GET",
-            cache:"no-store"
+            cache:"default"
         });
     }else{
         response = await fetch(url, {
@@ -1771,24 +1776,52 @@ async function apiRequest(action, data = {}, method = "POST"){
     return result;
 }
 
-async function loadPublishedQuizzes(){
+async function loadPublishedQuizzes(force=false){
+    const now=Date.now();
+    if(!force){
+        try{
+            const cached=JSON.parse(localStorage.getItem(PUBLISHED_CACHE_KEY)||"null");
+            if(cached && Array.isArray(cached.quizzes) && now-Number(cached.time||0)<PUBLISHED_CACHE_TTL){
+                publishedQuizzes=cached.quizzes;
+                renderHomeQuizzes();
+                return true;
+            }
+        }catch(e){}
+    }
     try{
-        const data = await apiRequest("getPublishedQuizzes", {}, "GET");
-        publishedQuizzes = data && data.ok && Array.isArray(data.quizzes)
-            ? data.quizzes
-            : [];
+        const data=await apiRequest("getPublishedQuizzes", {}, "GET");
+        publishedQuizzes=data && data.ok && Array.isArray(data.quizzes) ? data.quizzes : [];
+        try{ localStorage.setItem(PUBLISHED_CACHE_KEY, JSON.stringify({time:now,quizzes:publishedQuizzes})); }catch(e){}
     }catch(error){
         console.error(error);
-        publishedQuizzes = [];
+        try{
+            const cached=JSON.parse(localStorage.getItem(PUBLISHED_CACHE_KEY)||"null");
+            publishedQuizzes=cached && Array.isArray(cached.quizzes) ? cached.quizzes : [];
+        }catch(e){ publishedQuizzes=[]; }
     }
     renderHomeQuizzes();
+    return true;
 }
 
-async function loadTeacherData(){
+async function loadTeacherData(force=false){
     const token = sessionStorage.getItem(SESSION_KEY);
     if(!token) return false;
+    if(teacherDataRefreshPromise) return teacherDataRefreshPromise;
 
-    try{
+    const refresh = async()=>{
+      try{
+        if(!force){
+            try{
+                const cached=JSON.parse(sessionStorage.getItem(TEACHER_CACHE_KEY)||"null");
+                if(cached && cached.token===token && Date.now()-Number(cached.time||0)<TEACHER_CACHE_TTL && cached.teacher){
+                    currentTeacher=cached.teacher;
+                    quizzes={}; records={};
+                    (cached.quizzes||[]).forEach(q=>{ quizzes[q.id]=repairQuiz(q,q.id); });
+                    (cached.records||[]).forEach(r=>{ if(!records[r.quizNumber]) records[r.quizNumber]=[]; records[r.quizNumber].push(r); });
+                    return true;
+                }
+            }catch(e){}
+        }
         const data = await apiRequest("getTeacherData", {token}, "GET");
         if(!data || !data.ok) return false;
 
@@ -1822,11 +1855,15 @@ async function loadTeacherData(){
 
         saveQuizzes();
         saveRecords();
+        try{ sessionStorage.setItem(TEACHER_CACHE_KEY, JSON.stringify({time:Date.now(),token,teacher:currentTeacher,quizzes:Object.values(quizzes),records:Object.values(records).flat()})); }catch(e){}
         return true;
-    }catch(error){
+      }catch(error){
         console.error(error);
         return false;
-    }
+      }
+    };
+    teacherDataRefreshPromise=refresh();
+    try{return await teacherDataRefreshPromise;}finally{teacherDataRefreshPromise=null;}
 }
 
 async function saveQuizToGoogleSheets(quiz){
@@ -1836,6 +1873,7 @@ async function saveQuizToGoogleSheets(quiz){
             token: sessionStorage.getItem(SESSION_KEY),
             quiz: clone(quiz)
         });
+        if(data && data.ok){ try{ sessionStorage.removeItem(TEACHER_CACHE_KEY); }catch(e){} }
         return !!(data && data.ok);
     }catch(error){
         console.error(error);
@@ -1911,7 +1949,7 @@ function renderHomeQuizzes(){
             <div class="card center" style="grid-column:1/-1;background:#f8fafc">
                 <h3>No Published Quizzes</h3>
                 <p class="small">Your teacher has not published a quiz yet. Refresh this page after your teacher publishes one.</p>
-                <button class="btn btn-primary" onclick="loadPublishedQuizzes()">Refresh Published Quizzes</button>
+                <button class="btn btn-primary" onclick="loadPublishedQuizzes(true)">Refresh Published Quizzes</button>
             </div>`;
         return;
     }
@@ -3104,7 +3142,7 @@ function syncInProgressActivity(action,currentQuestion){
     record.answeredCount=answers.filter(isAnswered).length; record.currentQuestion=currentQuestion || record.currentQuestion || 1;
     record.securityEvents=securityEvents; record.status="In Progress"; record.answers=clone(answers); saveRecords();
     clearTimeout(activitySyncTimer);
-    activitySyncTimer=setTimeout(()=>sendToGoogleSheets(record,"save").catch(()=>{}),300);
+    activitySyncTimer=setTimeout(()=>sendToGoogleSheets(record,"save").catch(()=>{}),1200);
 }
 function startLiveMonitor(){
     clearInterval(liveMonitorInterval); if(!isTeacher()) return;
@@ -3118,7 +3156,7 @@ function startLiveMonitor(){
             renderLiveStudents(clean);
         }
         const st=$("liveMonitorStatus"); if(st) st.textContent="Updated "+new Date().toLocaleTimeString();
-    },3000);
+    },8000);
 }
 function renderLiveStudents(all){
     const box=$("liveStudentsContainer"); if(!box) return;
@@ -3935,6 +3973,7 @@ async function teacherLogout(){
     }
 
     sessionStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(TEACHER_CACHE_KEY);
     currentTeacher = null;
     quizzes = {};
     records = {};
@@ -5183,7 +5222,7 @@ async function publishAllQuizzes(){
     saveQuizzes();
     renderAdminQuizTabs();
     selectAdminQuiz(currentQuizNumber);
-    await loadPublishedQuizzes();
+    await loadPublishedQuizzes(true);
 
     showAdminStatus("Published " + sent + " quiz(es).");
 }
@@ -5191,7 +5230,7 @@ async function publishAllQuizzes(){
 async function refreshQuizData(){
     if(!isTeacher()) return;
 
-    const ok = await loadTeacherData();
+    const ok = await loadTeacherData(true);
     if(ok){
         renderAdminQuizTabs();
         selectAdminQuiz(currentQuizNumber);
