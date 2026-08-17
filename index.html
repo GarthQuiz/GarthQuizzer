@@ -2748,17 +2748,27 @@ function getEnumerationResult(question, studentAnswer){
         });
     }
 
-    const maxPoints =
-        Math.max(
-            1,
-            Number(question.studentAnswerCount) ||
-            required.length
-        );
+    // ENUMERATION SCORING:
+    // Every correct answer is worth exactly 1 point.
+    // The number of points available is based on the number of
+    // answer boxes given to the student (or all required answers
+    // when studentAnswerCount is not configured).
+    const answerSlots = Number(question.studentAnswerCount);
+    const maxPoints = Math.max(
+        1,
+        Number.isFinite(answerSlots) && answerSlots > 0
+            ? Math.min(Math.floor(answerSlots), required.length)
+            : required.length
+    );
+
+    const points = Math.min(matched, maxPoints);
 
     return {
-        points:Math.min(matched, maxPoints),
+        points,
         maxPoints,
-        isCorrect:matched === maxPoints,
+        // Fully correct means all available answer slots are correct.
+        // Partial enumeration answers still receive their earned points.
+        isCorrect: points === maxPoints,
         matched,
         provided
     };
