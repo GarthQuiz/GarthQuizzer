@@ -2887,20 +2887,44 @@ function googleSheetsConnected(){
 
 
 async function sendToGoogleSheets(record, action="save"){
-    // Teacher actions use the teacher token; student submissions use the student token.
     const teacherToken = sessionStorage.getItem(SESSION_KEY);
     const studentToken = sessionStorage.getItem(STUDENT_SESSION_KEY);
-    const token = isTeacher() ? teacherToken : studentToken;
+
+    // IMPORTANT: while a student is taking a quiz, always prefer the
+    // student token. A teacher token can remain in the same browser session
+    // and would otherwise be selected by isTeacher().
+    const studentMode = !!studentToken && !!currentStudentEmail && !!currentStudentTeacherId;
+    const token = action === "save"
+        ? (studentMode ? studentToken : teacherToken)
+        : teacherToken;
 
     try{
+        if(!token){
+            throw new Error("No active session token is available for this result.");
+        }
+
         if(action === "save"){
-            if(!token){
-                throw new Error("No active session token is available for this result.");
+            // Use the authenticated student's teacherId when available.
+            const payload = clone(record);
+            if(studentMode){
+                payload.teacherId = String(currentStudentTeacherId);
             }
-            return await apiRequest("saveRecord", {
-                token,
-                record: clone(record)
-            });
+
+            let lastError = null;
+            for(let attempt=1; attempt<=3; attempt++){
+                try{
+                    const result = await apiRequest("saveRecord", {
+                        token,
+                        record: payload
+                    });
+                    if(result && result.ok) return result;
+                    lastError = new Error((result && (result.message || result.error)) || "The server rejected the quiz result.");
+                }catch(error){
+                    lastError = error;
+                }
+                if(attempt < 3) await new Promise(resolve=>setTimeout(resolve, 800 * attempt));
+            }
+            throw lastError || new Error("The quiz result could not be saved.");
         }
 
         if(action === "delete"){
@@ -2919,9 +2943,10 @@ async function sendToGoogleSheets(record, action="save"){
         }
     }catch(error){
         console.error("GarthQuiz Google Sheets sync error:", error);
+        return {ok:false, message:error && error.message ? error.message : String(error)};
     }
 
-    return {ok:false};
+    return {ok:false, message:"Unknown synchronization action."};
 }
 
 function dedupeRecordsById(list){
@@ -3323,7 +3348,11 @@ async function submitQuiz(autoSubmitted, submissionReason=""){
     const saveResponse = await sendToGoogleSheets(record, "save");
     if(!saveResponse || !saveResponse.ok){
         console.error("GarthQuiz result save failed:", saveResponse);
-        alert("The quiz result could not be synchronized to the teacher dashboard. Please notify your teacher.");
+        const reason = saveResponse && saveResponse.message ? "\n\nServer: " + saveResponse.message : "";
+        alert("The quiz result could not be synchronized to the teacher dashboard." + reason + "\n\nPlease keep this page open and notify your teacher.");
+        submitting = false;
+        // Do NOT remove the student token. This lets the user retry instead of losing the result.
+        return;
     }
 
     quizSubmitted = true;
