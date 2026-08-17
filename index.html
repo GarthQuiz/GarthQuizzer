@@ -2168,6 +2168,10 @@ function renderHomeQuizzes(){
             if(typeCounts[q.type] !== undefined) typeCounts[q.type]++;
         });
 
+        card.setAttribute("role","button");
+        card.setAttribute("tabindex","0");
+        card.setAttribute("aria-label","Open " + (quiz.title || "Quiz"));
+
         card.innerHTML = `
             <h3>${escapeHTML(quiz.title)}</h3>
             <p><strong>Teacher:</strong> ${escapeHTML(item.teacherName || item.username || "Teacher")}</p>
@@ -2179,7 +2183,26 @@ function renderHomeQuizzes(){
                 <span class="badge badge-yellow">${typeCounts.enumeration} Enum</span>
             </p>
             <p class="small" style="margin-top:10px">Published • Code required</p>
+            <button type="button" class="btn btn-primary" style="margin-top:12px;width:100%">
+                Start Quiz
+            </button>
         `;
+
+        const startButton = card.querySelector("button");
+        if(startButton){
+            startButton.addEventListener("click", function(event){
+                event.preventDefault();
+                event.stopPropagation();
+                selectQuiz(item);
+            });
+        }
+
+        card.addEventListener("keydown", function(event){
+            if(event.key === "Enter" || event.key === " "){
+                event.preventDefault();
+                selectQuiz(item);
+            }
+        });
         grid.appendChild(card);
     });
 }
@@ -2194,16 +2217,18 @@ function selectQuiz(item){
     currentQuiz = clone(item.quiz);
 
     $("studentQuizTitle").textContent = currentQuiz.title;
-    $("studentName").value = "";
-    $("studentEmail").value = "";
+
+    // Students only need their assigned email and password.
+    if($("studentEmail")) $("studentEmail").value = "";
     if($("studentPassword")) $("studentPassword").value = "";
-    populateStudentSections(currentQuiz);
-    $("studentSection").value = "";
-    $("studentQuizCode").value = "";
-    $("studentError").classList.add("hidden");
+    if($("studentQuizCode")) $("studentQuizCode").value = "";
+    if($("studentError")) $("studentError").classList.add("hidden");
 
     showScreen("studentScreen");
-    setTimeout(()=>$("studentName").focus(),100);
+
+    setTimeout(()=>{
+        if($("studentEmail")) $("studentEmail").focus();
+    },100);
 }
 
 
