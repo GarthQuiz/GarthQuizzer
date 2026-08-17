@@ -1285,6 +1285,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbw5FBEYfHn7vhkj15RPH7em
 const QUIZ_KEY = "classquiz_pro_v4_quizzes";
 const RECORD_KEY = "classquiz_pro_v4_records";
 const SESSION_KEY = "classquiz_pro_v4_teacher_token";
+const STUDENT_SESSION_KEY = "classquiz_pro_v4_student_token";
 
 let currentTeacher = null;
 let currentStudentTeacherId = null;
@@ -1976,6 +1977,10 @@ async function studentLoginAndStartQuiz(){
         const auth=await apiRequest("loginStudent",{email,password,section,teacherId:currentStudentTeacherId});
         if(!auth||!auth.ok||!auth.student){error.textContent=auth?.message||"Incorrect email, password, or section.";error.classList.remove("hidden");return;}
         if(String(auth.student.teacherId||currentStudentTeacherId)!==String(currentStudentTeacherId)){error.textContent="This student account does not belong to the selected teacher.";error.classList.remove("hidden");return;}
+        // Keep the student session separate from the teacher session.
+        if(auth.token){
+            sessionStorage.setItem(STUDENT_SESSION_KEY, auth.token);
+        }
         currentStudent=auth.student.name;currentStudentEmail=gqNormalizeEmail(auth.student.email||email);currentStudentSection=auth.student.section||section;window.gqStudentEmail=currentStudentEmail;
         await startQuiz();
     }catch(e){console.error(e);error.textContent="Student login failed. Please check your internet connection and try again.";error.classList.remove("hidden");}
@@ -2882,19 +2887,25 @@ function googleSheetsConnected(){
 
 
 async function sendToGoogleSheets(record, action="save"){
-    const token = sessionStorage.getItem(SESSION_KEY);
+    // Teacher actions use the teacher token; student submissions use the student token.
+    const teacherToken = sessionStorage.getItem(SESSION_KEY);
+    const studentToken = sessionStorage.getItem(STUDENT_SESSION_KEY);
+    const token = isTeacher() ? teacherToken : studentToken;
 
     try{
         if(action === "save"){
+            if(!token){
+                throw new Error("No active session token is available for this result.");
+            }
             return await apiRequest("saveRecord", {
-                token: record.teacherId ? token : "",
+                token,
                 record: clone(record)
             });
         }
 
         if(action === "delete"){
             return await apiRequest("deleteRecord", {
-                token,
+                token: teacherToken,
                 recordId: record.id,
                 quizNumber: record.quizNumber
             });
@@ -2902,12 +2913,12 @@ async function sendToGoogleSheets(record, action="save"){
 
         if(action === "deleteAll"){
             return await apiRequest("deleteAllRecords", {
-                token,
+                token: teacherToken,
                 quizNumber: record.quizNumber
             });
         }
     }catch(error){
-        console.error(error);
+        console.error("GarthQuiz Google Sheets sync error:", error);
     }
 
     return {ok:false};
@@ -3319,6 +3330,8 @@ async function submitQuiz(autoSubmitted, submissionReason=""){
     quizStarted = false;
     submitting = false;
     gqStopHeartbeat();
+    // The result has already been sent; clear the student backend session.
+    sessionStorage.removeItem(STUDENT_SESSION_KEY);
 
     if(window.gqStudentEmail){
         const done = gqGetAttempt(window.gqStudentEmail, currentStudentQuiz) || {};
@@ -3910,9 +3923,17 @@ function showAdminDashboard(){
 function showAccountMessage(message,type="success"){const success=$("studentAccountStatus"),error=$("studentAccountError");success?.classList.add("hidden");error?.classList.add("hidden");const box=type==="error"?error:success;if(box){box.textContent=message;box.classList.remove("hidden");}}
 function populateAccountSections(){const select=$("accountStudentSection");if(!select)return;const sections=new Set();Object.values(quizzes||{}).forEach(q=>(q.sections||[]).forEach(x=>{if(String(x).trim())sections.add(String(x).trim())}));const values=[...sections].sort((a,b)=>a.localeCompare(b));select.innerHTML='<option value="">Select section</option>'+values.map(x=>`<option value="${escapeHTML(x)}">${escapeHTML(x)}</option>`).join("");if(!values.length)select.innerHTML='<option value="">Add sections in Quiz Editor first</option>';}
 async function loadStudentAccounts(){if(!isTeacher())return;const list=$("studentAccountsList");if(list)list.innerHTML='<div class="small">Loading student accounts...</div>';populateAccountSections();try{const data=await apiRequest("getStudentAccounts",{token:sessionStorage.getItem(SESSION_KEY)},"GET");if(!data||!data.ok){if(list)list.innerHTML='<div class="small">Student accounts could not be loaded. Deploy the matching backend first.</div>';return;}renderStudentAccounts(Array.isArray(data.students)?data.students:[]);}catch(e){console.error(e);if(list)list.innerHTML='<div class="small">Unable to connect to the student account service.</div>';}}
-function renderStudentAccounts(students){const list=$("studentAccountsList");if(!list)return;if(!students.length){list.innerHTML='<div class="small">No student accounts have been created yet.</div>';return;}list.innerHTML=students.map(student=>`<div class="account-item"><div class="account-meta"><strong>${escapeHTML(student.name||"Student")}</strong><div class="small">${escapeHTML(student.email||"")}</div><span class="badge badge-blue">${escapeHTML(student.section||"No section")}</span></div><button class="btn btn-danger" type="button" onclick="deleteStudentAccount('${escapeHTML(student.id||student.email||"")}')">Delete</button></div>`).join("");}
+function renderStudentAccounts(students){const list=$("studentAccountsList");if(!list)return;if(!students.length){list.innerHTML='<div class="small">No student accounts have been created yet.</div>';return;}list.innerHTML=students.map(student=>`<div class="account-item">
+    <div class="account-meta">
+        <strong>${escapeHTML(student.name||"Student")}</strong>
+        <div class="small">${escapeHTML(student.email||"")}</div>
+        <span class="badge badge-blue">${escapeHTML(student.section||"No section")}</span>
+    </div>
+    <button class="btn btn-danger" type="button" title="Delete student account"
+        onclick="deleteStudentAccount('${escapeHTML(student.id||"")}')">Delete Account</button>
+</div>`).join("");}
 async function createStudentAccount(){if(!isTeacher())return;const name=$("accountStudentName").value.trim(),email=gqNormalizeEmail($("accountStudentEmail").value),password=$("accountStudentPassword").value,section=$("accountStudentSection").value.trim();$("studentAccountStatus")?.classList.add("hidden");$("studentAccountError")?.classList.add("hidden");if(!name||!email||!password||!section){showAccountMessage("Please complete the name, email, password, and section.","error");return;}if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showAccountMessage("Please enter a valid email address.","error");return;}if(password.length<6){showAccountMessage("Password must be at least 6 characters.","error");return;}try{const data=await apiRequest("createStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),name,email,password,section});if(!data||!data.ok){showAccountMessage(data?.message||"Could not create the student account.","error");return;}$("accountStudentName").value="";$("accountStudentEmail").value="";$("accountStudentPassword").value="";$("accountStudentSection").value="";showAccountMessage("Student account created successfully.");await loadStudentAccounts();}catch(e){console.error(e);showAccountMessage("Server connection failed. Please try again.","error");}}
-async function deleteStudentAccount(id){if(!isTeacher()||!id)return;if(!confirm("Delete this student account? The student will no longer be able to log in."))return;try{const data=await apiRequest("deleteStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),studentId:id});if(!data||!data.ok){showAccountMessage(data?.message||"Could not delete the student account.","error");return;}showAccountMessage("Student account deleted.");await loadStudentAccounts();}catch(e){console.error(e);showAccountMessage("Server connection failed. Please try again.","error");}}
+async function deleteStudentAccount(id){if(!isTeacher()||!id)return;if(!confirm("Delete this student account? The student will no longer be able to log in."))return;try{const data=await apiRequest("deleteStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),id});if(!data||!data.ok){showAccountMessage(data?.message||"Could not delete the student account.","error");return;}showAccountMessage("Student account deleted.");await loadStudentAccounts();}catch(e){console.error(e);showAccountMessage("Server connection failed. Please try again.","error");}}
 
 /* =========================================================
    ADMIN NAVIGATION
