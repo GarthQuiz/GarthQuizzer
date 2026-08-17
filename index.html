@@ -1294,7 +1294,8 @@ let publishedQuizzes = [];
    GOOGLE SHEETS CONNECTION
    Paste your deployed Google Apps Script Web App URL here.
 ========================================================= */
-const GOOGLE_SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw5FBEYfHn7vhkj15RPH7ems--ABJi5WMaD8zHG1icjb9bP5YazPRcFkRneNBy3Jgi02g/exec";
+const GOOGLE_SHEETS_WEB_APP_URL = API_URL;
+// The same deployed Apps Script endpoint is used for quizzes, student records, and teacher data.
 
 
 let quizzes = {};
@@ -1734,16 +1735,39 @@ function saveQuizzes(){
 
 async function apiRequest(action, data = {}, method = "POST"){
     const payload = {action, ...data};
+    const url = API_URL;
+    if(!url){
+        throw new Error("Google Apps Script API URL is not configured.");
+    }
+
+    let response;
     if(method === "GET"){
         const qs = new URLSearchParams(payload).toString();
-        const response = await fetch(API_URL + "?" + qs);
-        return await response.json();
+        response = await fetch(url + "?" + qs, {
+            method:"GET",
+            cache:"no-store"
+        });
+    }else{
+        response = await fetch(url, {
+            method:"POST",
+            headers:{"Content-Type":"text/plain;charset=utf-8"},
+            body:JSON.stringify(payload),
+            cache:"no-store"
+        });
     }
-    const response = await fetch(API_URL, {
-        method:"POST",
-        body:JSON.stringify(payload)
-    });
-    return await response.json();
+
+    const text = await response.text();
+    let result;
+    try{
+        result = JSON.parse(text);
+    }catch(error){
+        throw new Error("Google Apps Script returned an invalid response. HTTP " + response.status);
+    }
+
+    if(!response.ok){
+        throw new Error((result && result.error) || ("Google Apps Script request failed. HTTP " + response.status));
+    }
+    return result;
 }
 
 async function loadPublishedQuizzes(){
