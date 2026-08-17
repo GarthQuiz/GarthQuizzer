@@ -793,18 +793,10 @@ Teacher Dashboard
 <h1 id="studentQuizTitle">Quiz</h1>
 
 <p class="subtitle">
-Enter your information to begin.
+Enter your student account email and password to begin.
 </p>
 
 <div id="studentError" class="error hidden"></div>
-
-<div class="form-group">
-<label>Student Name</label>
-<input
-    type="text"
-    id="studentName"
-    placeholder="Enter your full name">
-</div>
 
 <div class="form-group">
 <label>Email Address</label>
@@ -814,14 +806,6 @@ Enter your information to begin.
 <div class="form-group">
 <label>Password</label>
 <input type="password" id="studentPassword" placeholder="Enter your account password" autocomplete="current-password">
-</div>
-
-<div class="form-group">
-<label>Class / Section</label>
-<select id="studentSection">
-    <option value="">Select your class / section</option>
-</select>
-<div class="small" style="margin-top:6px">Select the section set by your teacher.</div>
 </div>
 
 <div style="background:#fff7ed;border:1px solid #fed7aa;padding:10px;border-radius:10px;margin-bottom:14px;font-size:13px">
@@ -2287,16 +2271,10 @@ function populateStudentSections(quiz){
 
 async function startQuiz(){
 
-    const name =
-        $("studentName").value.trim();
-
     const email =
         gqNormalizeEmail($("studentEmail") ? $("studentEmail").value : "");
     const password =
         $("studentPassword") ? $("studentPassword").value : "";
-
-    const section =
-        $("studentSection").value.trim();
 
     const enteredCode =
         $("studentQuizCode")
@@ -2312,16 +2290,6 @@ async function startQuiz(){
 
     error.classList.add("hidden");
 
-    if(!name){
-
-        error.textContent =
-            "Please enter your name.";
-
-        error.classList.remove("hidden");
-
-        return;
-    }
-
     if(!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
 
         error.textContent =
@@ -2334,25 +2302,6 @@ async function startQuiz(){
         error.textContent =
             "Please enter your student account password.";
         error.classList.remove("hidden");
-        return;
-    }
-
-    if(!section){
-
-        error.textContent =
-            "Please select your class / section.";
-
-        error.classList.remove("hidden");
-
-        return;
-    }
-
-    if(Array.isArray(quiz.sections) && quiz.sections.length && !quiz.sections.includes(section)){
-        error.textContent =
-            "Please select a valid class / section.";
-
-        error.classList.remove("hidden");
-
         return;
     }
 
@@ -2388,15 +2337,9 @@ async function startQuiz(){
         return;
     }
 
-    currentStudentAccount = account.student || {name, email, section};
-    const accountName = String(currentStudentAccount.name || name).trim();
-    const accountSection = String(currentStudentAccount.section || section).trim();
-
-    if(accountSection && accountSection !== section){
-        error.textContent = "Your account is assigned to " + accountSection + ". Please select that section.";
-        error.classList.remove("hidden");
-        return;
-    }
+    currentStudentAccount = account.student || {email};
+    const accountName = String(currentStudentAccount.name || "Student").trim();
+    const accountSection = String(currentStudentAccount.section || "").trim();
 
     const guard = await gqCheckBeforeStart(email, quiz.id);
     if(!guard.ok){
