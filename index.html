@@ -291,6 +291,13 @@ select:focus{
 .account-section-folder .folder-accounts{padding:10px}
 .account-password{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;letter-spacing:.02em}
 .account-password-wrap{display:flex;align-items:center;gap:8px;margin-top:7px;flex-wrap:wrap}
+.record-section-folder{border:1px solid var(--border);border-radius:14px;background:#fff;overflow:hidden;margin-bottom:14px}
+.record-section-folder summary{list-style:none;cursor:pointer;padding:15px 17px;background:#f8fafc;font-weight:900;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.record-section-folder summary::-webkit-details-marker{display:none}
+.record-section-folder summary:hover{background:#eff6ff}
+.record-folder-title{display:flex;align-items:center;gap:9px}
+.record-folder-count{font-size:12px;color:var(--muted);font-weight:800}
+.record-folder-body{padding:10px}
 .account-password-label{font-size:12px;color:var(--muted);font-weight:800}
 .account-password-value{background:#f1f5f9;border:1px solid var(--border);border-radius:8px;padding:6px 9px;word-break:break-all}
 .bulk-import-card{margin-top:20px;border:1px solid var(--border);border-radius:14px;background:#fff;padding:18px}
@@ -5479,150 +5486,89 @@ function renderRecords(){
             new Date(a.submittedAt)
     );
 
-    container.innerHTML = `
+    // Group quiz records into a separate folder for every class/section.
+    // Each folder contains its own student-record table.
+    const recordGroups = {};
+    filtered.forEach(record=>{
+        const section = String(record.section || "No section").trim() || "No section";
+        (recordGroups[section] ||= []).push(record);
+    });
 
-        <div class="records-wrap">
+    const recordSections = Object.keys(recordGroups).sort((a,b)=>a.localeCompare(b));
 
-        <table class="records-table">
+    container.innerHTML = recordSections.map(section=>{
+        const sectionRecords = recordGroups[section];
+        sectionRecords.sort((a,b)=>
+            new Date(b.submittedAt || b.startedAt) -
+            new Date(a.submittedAt || a.startedAt)
+        );
 
-        <thead>
-        <tr>
-            <th>Student</th>
-            <th>Email</th>
-            <th>Class / Section</th>
-            <th>Score</th>
-            <th>Security</th>
-            <th>Status</th>
-            <th>Submission</th>
-            <th>Date</th>
-            <th>Action</th>
-        </tr>
-        </thead>
+        return `
+            <details class="record-section-folder" open>
+                <summary>
+                    <span class="record-folder-title">📁 ${escapeHTML(section)}</span>
+                    <span class="record-folder-count">${sectionRecords.length} record${sectionRecords.length===1?"":"s"}</span>
+                </summary>
+                <div class="record-folder-body">
+                    <div class="records-wrap">
+                        <table class="records-table">
+                            <thead>
+                                <tr>
+                                    <th>Student</th>
+                                    <th>Email</th>
+                                    <th>Class / Section</th>
+                                    <th>Score</th>
+                                    <th>Security</th>
+                                    <th>Status</th>
+                                    <th>Submission</th>
+                                    <th>Date</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${sectionRecords.map(record=>{
+                                    const badge =
+                                        record.percentage >= 75
+                                            ? "badge-green"
+                                            : record.percentage >= 60
+                                                ? "badge-yellow"
+                                                : "badge-red";
 
-        <tbody>
+                                    return `
+                                        <tr>
+                                            <td><strong>${escapeHTML(record.student)}</strong></td>
+                                            <td>${escapeHTML(record.email || "")}</td>
+                                            <td><span class="badge badge-blue">${escapeHTML(record.section || "No section")}</span></td>
+                                            <td>
+                                                <span class="badge ${badge}">${record.percentage}%</span>
+                                                <div class="small">${record.correct}/${record.total} point(s)</div>
+                                            </td>
+                                            <td>
+                                                <span class="badge ${Number(record.securityEvents) >= 2 ? "badge-red" : "badge-green"}">${record.securityEvents || 0}</span>
+                                            </td>
+                                            <td>
+                                                <span class="badge ${record.automatic ? "badge-yellow" : "badge-green"}">${record.status || (record.automatic ? "Automatic" : "Manual")}</span>
+                                                <div class="small">Logins/Attempts: ${Math.max(Number(record.loginCount || 1), countStudentAttempts(getRecords(currentQuizNumber), record.email))}</div>
+                                            </td>
+                                            <td>
+                                                <span class="badge ${record.automatic ? "badge-yellow" : "badge-green"}">${record.automatic ? "Automatic" : "Manual"}</span>
+                                            </td>
+                                            <td>${escapeHTML(formatDate(record.submittedAt || record.startedAt))}</td>
+                                            <td>
+                                                <button class="btn btn-primary" onclick="viewRecord('${record.id}')">View</button>
+                                                <button class="btn btn-danger" onclick="deleteRecord('${record.id}')">Delete</button>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join("")}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </details>
+        `;
+    }).join("");
 
-        ${filtered.map(record=>{
-
-            const badge =
-                record.percentage >= 75
-                    ? "badge-green"
-                    : record.percentage >= 60
-                        ? "badge-yellow"
-                        : "badge-red";
-
-            return `
-
-                <tr>
-
-                    <td>
-                        <strong>
-                            ${
-                                escapeHTML(
-                                    record.student
-                                )
-                            }
-                        </strong>
-                    </td>
-
-                    <td>${escapeHTML(record.email || "")}</td>
-
-                    <td>
-                        <span class="badge badge-blue">
-                            ${
-                                escapeHTML(
-                                    record.section
-                                )
-                            }
-                        </span>
-                    </td>
-
-                    <td>
-
-                        <span class="badge ${badge}">
-                            ${
-                                record.percentage
-                            }%
-                        </span>
-
-                        <div class="small">
-                            ${
-                                record.correct
-                            }/${record.total} point(s)
-                        </div>
-
-                    </td>
-
-                    <td>
-
-                        <span class="badge ${
-                            Number(
-                                record.securityEvents
-                            ) >= 2
-                                ? "badge-red"
-                                : "badge-green"
-                        }">
-
-                            ${
-                                record.securityEvents || 0
-                            }
-
-                        </span>
-
-                    </td>
-
-                    <td>
-
-                        <span class="badge ${
-                            record.automatic
-                                ? "badge-yellow"
-                                : "badge-green"
-                        }">
-
-                            ${
-                                record.status || (record.automatic ? "Automatic" : "Manual")
-                            }
-
-                        </span>
-                        <div class="small">Logins/Attempts: ${Math.max(Number(record.loginCount || 1), countStudentAttempts(getRecords(currentQuizNumber), record.email))}</div>
-
-                    </td>
-
-                    <td>
-                        ${
-                            escapeHTML(
-                                formatDate(
-                                    record.submittedAt || record.startedAt
-                                )
-                            )
-                        }
-                    </td>
-
-                    <td>
-
-                        <button
-                            class="btn btn-primary"
-                            onclick="viewRecord('${record.id}')">
-                            View
-                        </button>
-                         <button
-                             class="btn btn-danger"
-                             onclick="deleteRecord('${record.id}')">
-                             Delete
-                         </button>
-
-                    </td>
-
-                </tr>
-            `;
-
-        }).join("")}
-
-        </tbody>
-
-        </table>
-
-        </div>
-    `;
 }
 
 
