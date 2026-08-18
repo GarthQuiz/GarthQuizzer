@@ -761,10 +761,32 @@ select:focus{
     -webkit-touch-callout: default !important;
 }
 
+
+/* LOADING OVERLAY */
+.loading-overlay{position:fixed;inset:0;z-index:5000;background:rgba(15,23,42,.72);display:flex;align-items:center;justify-content:center;padding:20px}
+.loading-overlay.hidden{display:none!important}
+.loading-card{width:min(390px,100%);background:#fff;border-radius:18px;padding:30px 24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.loading-spinner{width:52px;height:52px;border:5px solid #dbeafe;border-top-color:var(--primary);border-radius:50%;animation:gqSpin .8s linear infinite;margin:0 auto 18px}
+.loading-message{font-size:18px;font-weight:900;color:var(--dark);margin:0}
+.loading-submessage{font-size:13px;color:var(--muted);margin:8px 0 0}
+@keyframes gqSpin{to{transform:rotate(360deg)}}
+.student-edit-panel{margin-top:12px;padding:15px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:12px}
+.student-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.student-edit-grid .full-row{grid-column:1/-1}
+@media(max-width:600px){.student-edit-grid{grid-template-columns:1fr}}
+
 </style>
 </head>
 
 <body>
+
+<div id="gqLoadingOverlay" class="loading-overlay hidden" aria-live="polite" aria-busy="true">
+  <div class="loading-card">
+    <div class="loading-spinner" aria-hidden="true"></div>
+    <p id="gqLoadingMessage" class="loading-message">Loading...</p>
+    <p id="gqLoadingSubmessage" class="loading-submessage">Please wait.</p>
+  </div>
+</div>
 
 <!-- HOME -->
 <section id="homeScreen" class="screen">
@@ -2032,6 +2054,15 @@ function selectQuiz(item){
     setTimeout(()=>$("studentEmail").focus(),100);
 }
 
+function showGqLoading(message,submessage="Please wait..."){
+    const overlay=$("gqLoadingOverlay");
+    if(!overlay)return;
+    $("gqLoadingMessage").textContent=message;
+    $("gqLoadingSubmessage").textContent=submessage;
+    overlay.classList.remove("hidden");
+}
+function hideGqLoading(){$("gqLoadingOverlay")?.classList.add("hidden");}
+
 async function studentLoginAndStartQuiz(){
     const email=gqNormalizeEmail($("studentEmail").value), password=$("studentPassword").value, section=$("studentSection").value.trim(), error=$("studentError");
     error.classList.add("hidden");
@@ -2043,17 +2074,17 @@ async function studentLoginAndStartQuiz(){
     const code=$("studentQuizCode").value.trim().toUpperCase();
     if(!code){error.textContent="Please enter the quiz access code.";error.classList.remove("hidden");return;}
     if(code!==String(quiz.code).trim().toUpperCase()){error.textContent="Incorrect quiz access code.";error.classList.remove("hidden");return;}
+    showGqLoading("Verifying your account...","Please wait while we verify your student account.");
     try{
         const auth=await apiRequest("loginStudent",{email,password,section,teacherId:currentStudentTeacherId});
-        if(!auth||!auth.ok||!auth.student){error.textContent=auth?.message||"Incorrect email, password, or section.";error.classList.remove("hidden");return;}
-        if(String(auth.student.teacherId||currentStudentTeacherId)!==String(currentStudentTeacherId)){error.textContent="This student account does not belong to the selected teacher.";error.classList.remove("hidden");return;}
-        // Keep the student session separate from the teacher session.
-        if(auth.token){
-            sessionStorage.setItem(STUDENT_SESSION_KEY, auth.token);
-        }
+        if(!auth||!auth.ok||!auth.student){hideGqLoading();error.textContent=auth?.message||"Incorrect email, password, or section.";error.classList.remove("hidden");return;}
+        if(String(auth.student.teacherId||currentStudentTeacherId)!==String(currentStudentTeacherId)){hideGqLoading();error.textContent="This student account does not belong to the selected teacher.";error.classList.remove("hidden");return;}
+        if(auth.token)sessionStorage.setItem(STUDENT_SESSION_KEY,auth.token);
         currentStudent=auth.student.name;currentStudentEmail=gqNormalizeEmail(auth.student.email||email);currentStudentSection=auth.student.section||section;window.gqStudentEmail=currentStudentEmail;
+        showGqLoading("Preparing your quiz...","Your account is verified. Preparing your quiz now.");
         await startQuiz();
-    }catch(e){console.error(e);error.textContent="Student login failed. Please check your internet connection and try again.";error.classList.remove("hidden");}
+        hideGqLoading();
+    }catch(e){console.error(e);hideGqLoading();error.textContent="Student login failed. Please check your internet connection and try again.";error.classList.remove("hidden");}
 }
 
 function gqShuffle(array){
@@ -3302,6 +3333,7 @@ async function submitQuiz(autoSubmitted, submissionReason=""){
     }
 
     submitting = true;
+    showGqLoading("Submitting your quiz...","Please wait while your answers are saved.");
     stopQuizTimer();
 
     let correct = 0;
@@ -3431,6 +3463,7 @@ async function submitQuiz(autoSubmitted, submissionReason=""){
         const reason = saveResponse && saveResponse.message ? "\n\nServer: " + saveResponse.message : "";
         alert("The quiz result could not be synchronized to the teacher dashboard." + reason + "\n\nPlease keep this page open and notify your teacher.");
         submitting = false;
+        hideGqLoading();
         // Do NOT remove the student token. This lets the user retry instead of losing the result.
         return;
     }
@@ -3459,6 +3492,7 @@ async function submitQuiz(autoSubmitted, submissionReason=""){
     exitFullscreen();
 
     showResult(record);
+    hideGqLoading();
 }
 
 
@@ -3954,44 +3988,24 @@ async function registerTeacher(){
 }
 
 async function teacherLogin(){
-    const username = $("teacherUsername").value.trim();
-    const password = $("teacherPassword").value;
-    const error = $("teacherLoginError");
-
+    const username=$("teacherUsername").value.trim();
+    const password=$("teacherPassword").value;
+    const error=$("teacherLoginError");
     error.classList.add("hidden");
-
-    if(!username || !password){
-        error.textContent = "Enter your username and password.";
-        error.classList.remove("hidden");
-        return;
-    }
-
+    if(!username||!password){error.textContent="Enter your username and password.";error.classList.remove("hidden");return;}
+    showGqLoading("Signing in...","Verifying your teacher account.");
     try{
-        const data = await apiRequest("loginTeacher", {username, password});
-
-        if(!data || !data.ok){
-            error.textContent = data && data.message ? data.message : "Incorrect username or password.";
-            error.classList.remove("hidden");
-            return;
-        }
-
-        sessionStorage.setItem(SESSION_KEY, data.token);
-        currentTeacher = data.teacher;
-
-        const loaded = await loadTeacherData();
-        if(!loaded){
-            sessionStorage.removeItem(SESSION_KEY);
-            error.textContent = "Login succeeded, but the teacher data could not be loaded.";
-            error.classList.remove("hidden");
-            return;
-        }
-
-        $("teacherDisplay").textContent = currentTeacher.name || currentTeacher.username;
+        const data=await apiRequest("loginTeacher",{username,password});
+        if(!data||!data.ok){hideGqLoading();error.textContent=data&&data.message?data.message:"Incorrect username or password.";error.classList.remove("hidden");return;}
+        sessionStorage.setItem(SESSION_KEY,data.token);
+        currentTeacher=data.teacher;
+        showGqLoading("Loading your dashboard...","Loading your quizzes, records, and student accounts.");
+        const loaded=await loadTeacherData();
+        if(!loaded){sessionStorage.removeItem(SESSION_KEY);hideGqLoading();error.textContent="Login succeeded, but the teacher data could not be loaded.";error.classList.remove("hidden");return;}
+        $("teacherDisplay").textContent=currentTeacher.name||currentTeacher.username;
         showAdminDashboard();
-    }catch(e){
-        error.textContent = "Server connection failed. Please check the deployed Apps Script URL.";
-        error.classList.remove("hidden");
-    }
+        hideGqLoading();
+    }catch(e){hideGqLoading();error.textContent="Server connection failed. Please check the deployed Apps Script URL.";error.classList.remove("hidden");}
 }
 
 function isTeacher(){
@@ -4060,8 +4074,8 @@ function renderStudentAccounts(students){
     const sections=Object.keys(groups).sort((a,b)=>a.localeCompare(b));
     list.innerHTML=sections.map(section=>{
         const members=groups[section];
-        const sectionArg = encodeURIComponent(section);
-        return `<details class="account-section-folder" open>
+        const sectionArg=encodeURIComponent(section);
+        return `<details class="account-section-folder">
             <summary>
                 <span class="folder-title">📁 ${escapeHTML(section)}</span>
                 <span class="folder-actions">
@@ -4070,54 +4084,71 @@ function renderStudentAccounts(students){
                 </span>
             </summary>
             <div class="folder-accounts">
-                ${members.map(student=>{
-                    const email=gqNormalizeEmail(student.email||"");
-                    const password=student.password || student.displayPassword || student.plainPassword || savedPasswords[email] || "Not available";
-                    return `<div class="account-item">
-                        <div class="account-meta">
-                            <strong>${escapeHTML(student.name||"Student")}</strong>
-                            <div class="small">${escapeHTML(student.email||"")}</div>
-                            <div class="account-password-wrap"><span class="account-password-label">PASSWORD</span><span class="account-password-value account-password">${escapeHTML(password)}</span></div>
-                        </div>
-                        <button class="btn btn-danger" type="button" title="Delete student account" onclick="deleteStudentAccount('${escapeHTML(student.id||"")}','${escapeHTML(student.email||"")}')">Delete Account</button>
-                    </div>`;
-                }).join("")}
+                <div class="small" style="padding:8px 4px">Clicking this folder loads the registered students.</div>
+                ${members.map(student=>renderStudentAccountItem(student,savedPasswords)).join("")}
             </div>
         </details>`;
     }).join("");
 }
-async function deleteStudentAccountFolder(section){
-    if(!isTeacher()||!section)return;
-    const accounts=Array.isArray(window.__gqStudentAccounts)?window.__gqStudentAccounts:[];
-    const members=accounts.filter(student=>String(student.section||"No section").trim()===section);
-    if(!members.length){await loadStudentAccounts();return;}
-    if(!confirm(`Delete the "${section}" folder and all ${members.length} student account${members.length===1?"":"s"} inside it?\n\nThis will permanently delete these student accounts. This action cannot be undone.`))return;
-    showAccountMessage(`Deleting ${members.length} account${members.length===1?"":"s"} from ${section}...`);
-    let failed=0;
-    for(const student of members){
-        try{
-            const data=await apiRequest("deleteStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),id:student.id});
-            if(data&&data.ok){removeSavedStudentPassword(student.email||"");}
-            else failed++;
-        }catch(e){console.error(e);failed++;}
-    }
-    if(failed){showAccountMessage(`${failed} account${failed===1?"":"s"} could not be deleted. Please try again.`,"error");}
-    else showAccountMessage(`Section folder "${section}" and all student accounts inside it were deleted.`);
-    await loadStudentAccounts();
+
+function renderStudentAccountItem(student,savedPasswords=getSavedStudentPasswords()){
+    const email=gqNormalizeEmail(student.email||"");
+    const password=student.password || student.displayPassword || student.plainPassword || savedPasswords[email] || "Not available";
+    const id=String(student.id||"");
+    const key='student-edit-'+encodeURIComponent(id);
+    return `<div class="account-item" id="student-account-${escapeHTML(id)}">
+        <div class="account-meta" style="flex:1">
+            <strong>${escapeHTML(student.name||"Student")}</strong>
+            <div class="small">${escapeHTML(student.email||"")}</div>
+            <div class="account-password-wrap"><span class="account-password-label">PASSWORD</span><span class="account-password-value account-password">${escapeHTML(password)}</span></div>
+        </div>
+        <div class="button-row" style="margin-top:0;justify-content:flex-end">
+            <button class="btn btn-warning" type="button" onclick="toggleStudentAccountEdit('${escapeHTML(id)}')">Edit</button>
+            <button class="btn btn-danger" type="button" title="Delete student account" onclick="deleteStudentAccount('${escapeHTML(id)}','${escapeHTML(student.email||"")}')">Delete Account</button>
+        </div>
+    </div>
+    <div id="${key}" class="student-edit-panel hidden">
+      <div class="student-edit-grid">
+        <div><label>Student Name</label><input id="editStudentName-${escapeHTML(id)}" value="${escapeHTML(student.name||"")}"></div>
+        <div><label>Email Address</label><input type="email" id="editStudentEmail-${escapeHTML(id)}" value="${escapeHTML(student.email||"")}"></div>
+        <div><label>New Password</label><input type="text" id="editStudentPassword-${escapeHTML(id)}" placeholder="Leave blank to keep current password"></div>
+        <div><label>Section</label><input id="editStudentSection-${escapeHTML(id)}" value="${escapeHTML(student.section||"")}"></div>
+        <div class="full-row button-row" style="margin-top:0">
+          <button class="btn btn-success" type="button" onclick="saveEditedStudentAccount('${escapeHTML(id)}','${escapeHTML(student.email||"")}')">Save Changes</button>
+          <button class="btn btn-secondary" type="button" onclick="toggleStudentAccountEdit('${escapeHTML(id)}')">Cancel</button>
+        </div>
+        <div class="small full-row">Changing the email or password changes the student's login credentials.</div>
+      </div>
+    </div>`;
 }
-let importedStudentRows=[];
-function setStudentImportStatus(message,isError=false){const box=$("studentImportStatus");if(!box)return;box.textContent=message||"";box.style.color=isError?"#b91c1c":"";}
-function normalizeImportHeader(value){return String(value||"").trim().toLowerCase().replace(/[ _-]+/g,"");}
-function parseCSVLine(line){const result=[];let value="";let quoted=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'){if(quoted&&line[i+1]==='"'){value+='"';i++;}else{quoted=!quoted;}}else if(ch===','&&!quoted){result.push(value.trim());value="";}else{value+=ch;}}result.push(value.trim());return result;}
-function parseDelimitedText(text){const lines=String(text||"").replace(/^\uFEFF/,'').split(/\r?\n/).filter(line=>line.trim()!=="");if(!lines.length)return [];const delimiter=lines[0].includes('\t')?'\t':',';const rows=lines.map(line=>delimiter==='\t'?line.split('\t').map(x=>x.trim()):parseCSVLine(line));const headers=rows[0].map(normalizeImportHeader);const known={name:["name","studentname","fullname","student"],email:["email","emailaddress"],password:["password","pass","studentpassword"],section:["section","class","classname","classsection"]};const findIndex=keys=>headers.findIndex(h=>keys.includes(h));const idx={name:findIndex(known.name),email:findIndex(known.email),password:findIndex(known.password),section:findIndex(known.section)};const hasHeader=Object.values(idx).some(v=>v>=0);const start=hasHeader?1:0;return rows.slice(start).map(cols=>({name:idx.name>=0?cols[idx.name]||"":cols[0]||"",email:idx.email>=0?cols[idx.email]||"":cols[1]||"",password:idx.password>=0?cols[idx.password]||"":cols[2]||"",section:idx.section>=0?cols[idx.section]||"":cols[3]||""})).filter(r=>r.name||r.email);}
-function makeTemporaryStudentPassword(index){return "GQ"+Math.random().toString(36).slice(2,6).toUpperCase()+String(index+1).padStart(2,"0");}
-function renderStudentImportPreview(){const box=$("studentImportPreview"),button=$("createImportedStudentsButton");if(!box)return;if(!importedStudentRows.length){box.innerHTML='<div class="import-empty">No students imported yet.</div>';if(button)button.disabled=true;return;}const defaultSection=$("studentImportDefaultSection")?.value.trim()||"";const rows=importedStudentRows.map((r,i)=>({...r,section:(r.section||defaultSection).trim(),password:r.password||makeTemporaryStudentPassword(i)}));importedStudentRows=rows;box.innerHTML=`<table class="bulk-import-table"><thead><tr><th>#</th><th>Name</th><th>Email</th><th>Password</th><th>Section</th></tr></thead><tbody>${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${escapeHTML(r.name)}</td><td>${escapeHTML(r.email)}</td><td><span class="account-password">${escapeHTML(r.password)}</span></td><td>${escapeHTML(r.section||"Missing section")}</td></tr>`).join("")}</tbody></table>`;if(button)button.disabled=false;setStudentImportStatus(`${rows.length} student${rows.length===1?"":"s"} ready to create.`);}
-async function handleStudentImportFile(event){const file=event.target.files?.[0];if(!file)return;try{const text=await file.text();let rows=[];if(file.name.toLowerCase().endsWith('.json')){const parsed=JSON.parse(text);const arr=Array.isArray(parsed)?parsed:(Array.isArray(parsed.students)?parsed.students:[]);rows=arr.map(r=>({name:r.name||r.studentName||r.fullName||"",email:r.email||r.emailAddress||"",password:r.password||r.studentPassword||"",section:r.section||r.class||r.className||""})).filter(r=>r.name||r.email);}else{rows=parseDelimitedText(text);}importedStudentRows=rows;renderStudentImportPreview();if(!rows.length)setStudentImportStatus("No student rows were found. Please check the file format.",true);}catch(e){console.error(e);importedStudentRows=[];renderStudentImportPreview();setStudentImportStatus("Could not read this file. Use CSV, TXT, TSV, or JSON with Name, Email, Password, Section columns.",true);}event.target.value="";}
-function clearStudentImport(){importedStudentRows=[];renderStudentImportPreview();setStudentImportStatus("");}
-function downloadStudentImportTemplate(){const csv='Name,Email,Password,Section\nJuan Dela Cruz,juan@example.com,Juan123,Grade 11 Gemini\nMaria Santos,maria@example.com,Maria123,Grade 11 Gemini\n';const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='student_accounts_template.csv';a.click();URL.revokeObjectURL(url);}
-$("studentImportDefaultSection")?.addEventListener("change",()=>{if(importedStudentRows.length)renderStudentImportPreview();});
-async function createImportedStudentAccounts(){if(!isTeacher()||!importedStudentRows.length)return;const defaultSection=$("studentImportDefaultSection")?.value.trim()||"";const rows=importedStudentRows.map((r,i)=>({...r,section:(r.section||defaultSection).trim(),password:r.password||makeTemporaryStudentPassword(i)}));const invalid=rows.findIndex(r=>!r.name||!r.email||!r.section||!/^([^\s@]+)@([^\s@]+)\.([^\s@]+)$/.test(r.email)||String(r.password).length<6);if(invalid>=0){setStudentImportStatus(`Please fix row ${invalid+1}: name, valid email, section, and a password of at least 6 characters are required.`,true);return;}const button=$("createImportedStudentsButton");if(button)button.disabled=true;let created=0,failed=0;for(let i=0;i<rows.length;i++){const r=rows[i];setStudentImportStatus(`Creating account ${i+1} of ${rows.length}: ${r.name}...`);try{const data=await apiRequest("createStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),name:r.name.trim(),email:gqNormalizeEmail(r.email),password:r.password,section:r.section});if(data&&data.ok){saveStudentPassword(r.email,r.password);created++;}else{failed++;}}catch(e){console.error(e);failed++;}}importedStudentRows=[];renderStudentImportPreview();setStudentImportStatus(`Finished. ${created} account${created===1?"":"s"} created${failed?`, ${failed} failed`:""}.` ,failed>0);await loadStudentAccounts();}
-async function createStudentAccount(){if(!isTeacher())return;const name=$("accountStudentName").value.trim(),email=gqNormalizeEmail($("accountStudentEmail").value),password=$("accountStudentPassword").value,section=$("accountStudentSection").value.trim();$("studentAccountStatus")?.classList.add("hidden");$("studentAccountError")?.classList.add("hidden");if(!name||!email||!password||!section){showAccountMessage("Please complete the name, email, password, and section.","error");return;}if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showAccountMessage("Please enter a valid email address.","error");return;}if(password.length<6){showAccountMessage("Password must be at least 6 characters.","error");return;}try{const data=await apiRequest("createStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),name,email,password,section});if(!data||!data.ok){showAccountMessage(data?.message||"Could not create the student account.","error");return;}saveStudentPassword(email,password);$("accountStudentName").value="";$("accountStudentEmail").value="";$("accountStudentPassword").value="";$("accountStudentSection").value="";showAccountMessage("Student account created successfully.");await loadStudentAccounts();}catch(e){console.error(e);showAccountMessage("Server connection failed. Please try again.","error");}}
+
+function toggleStudentAccountEdit(id){
+    const el=$("student-edit-"+encodeURIComponent(String(id)));
+    if(el)el.classList.toggle("hidden");
+}
+
+async function saveEditedStudentAccount(id,oldEmail=""){
+    if(!isTeacher()||!id)return;
+    const name=$("editStudentName-"+id)?.value.trim();
+    const email=gqNormalizeEmail($("editStudentEmail-"+id)?.value||"");
+    const password=$("editStudentPassword-"+id)?.value||"";
+    const section=$("editStudentSection-"+id)?.value.trim();
+    if(!name||!email||!section){showAccountMessage("Please complete the student name, email, and section.","error");return;}
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showAccountMessage("Please enter a valid email address.","error");return;}
+    if(password && password.length<6){showAccountMessage("Password must be at least 6 characters.","error");return;}
+    showAccountMessage("Saving student account changes...");
+    try{
+        const payload={token:sessionStorage.getItem(SESSION_KEY),id,name,email,section};
+        if(password)payload.password=password;
+        const data=await apiRequest("updateStudentAccount",payload);
+        if(!data||!data.ok){showAccountMessage(data?.message||"Could not update the student account. Make sure your deployed backend supports updateStudentAccount.","error");return;}
+        if(password)saveStudentPassword(email,password);
+        if(gqNormalizeEmail(oldEmail)!==email)removeSavedStudentPassword(oldEmail);
+        showAccountMessage("Student account updated successfully.");
+        await loadStudentAccounts();
+    }catch(e){console.error(e);showAccountMessage("Server connection failed. Please try again.","error");}
+}
+
 async function deleteStudentAccount(id,email=""){if(!isTeacher()||!id)return;if(!confirm("Delete this student account? The student will no longer be able to log in."))return;try{const data=await apiRequest("deleteStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),id});if(!data||!data.ok){showAccountMessage(data?.message||"Could not delete the student account.","error");return;}removeSavedStudentPassword(email);showAccountMessage("Student account deleted.");await loadStudentAccounts();}catch(e){console.error(e);showAccountMessage("Server connection failed. Please try again.","error");}}
 
 /* =========================================================
