@@ -1892,7 +1892,7 @@ async function loadTeacherData(force=false){
         });
 
         Object.keys(records).forEach(key=>{
-            records[key] = dedupeStudentRecords(dedupeRecordsByAttempt(dedupeRecordsById(records[key])));
+            records[key] = dedupeRecordsByAttempt(dedupeRecordsById(records[key]));
         });
 
         for(let i=1;i<=10;i++){
@@ -2288,95 +2288,81 @@ async function startQuiz(){
 
     records[currentStudentQuiz] = records[currentStudentQuiz] || [];
 
-    // Keep ONE dashboard row per student + quiz.
-    // A later login updates the student's existing row instead of adding another row.
-    const normalizedStudentEmail = gqNormalizeEmail(currentStudentEmail);
-    let existingAttemptRecord = records[currentStudentQuiz].find(r =>
-        String(r.email || "").trim().toLowerCase() === normalizedStudentEmail
-    ) || null;
-
-    const isUpdatingStudentRecord = !!existingAttemptRecord;
-
+    // Every approved login creates a NEW record with a NEW attempt ID.
+    // This is required so the server can distinguish Attempt 1 from Attempt 2
+    // and permanently block Attempt 3.
     const savedAttemptState = gqGetAttempt(email, currentStudentQuiz);
     answers = Array.isArray(savedAttemptState?.answers) && savedAttemptState.answers.length === currentQuiz.questions.length
         ? clone(savedAttemptState.answers)
         : new Array(currentQuiz.questions.length).fill(null);
 
-    securityEvents = isUpdatingStudentRecord
-        ? Number(existingAttemptRecord.securityEvents || 0)
-        : 0;
-
+    securityEvents = 0;
     quizStarted = true;
     quizSubmitted = false;
     submitting = false;
     quizStartedAt = new Date().toISOString();
 
-    currentRecordId = isUpdatingStudentRecord
-        ? existingAttemptRecord.id
-        : studentRecordId(currentStudentEmail, currentStudentQuiz);
+    /* ONE STUDENT ROW / TWO ATTEMPTS: reuse the existing row. */
+    const existingStudentRow = (records[currentStudentQuiz] || []).find(r =>
+        String(r.email || "").trim().toLowerCase() === String(currentStudentEmail || "").trim().toLowerCase()
+    );
 
-    const startRecord = isUpdatingStudentRecord
-        ? Object.assign(existingAttemptRecord, {
-            student:currentStudent,
-            email:currentStudentEmail,
-            section:currentStudentSection,
-            attemptNumber,
-            maxAttempts:2,
-            loginCount:Number(existingAttemptRecord.loginCount || 1) + 1,
-            lastAction:"Started another attempt",
-            lastActivityAt:new Date().toISOString(),
-            securityEvents,
-            status:"In Progress",
-            startedAt:quizStartedAt,
-            submittedAt:null,
-            correct:0,
-            percentage:0,
-            answers:clone(answers),
-            detailedAnswers:currentQuiz.questions.map((question,index)=>({
-                number:index+1, type:question.type, question:question.question,
-                studentAnswer:null, selected:null, correct:null, isCorrect:false
-            }))
-        })
-        : {
+    currentRecordId = existingStudentRow?.id || generateId("record");
+    attemptId = generateId("attempt");
+
+    const startRecord = {
+        id:currentRecordId,
+        attemptId,
+        teacherId:currentStudentTeacherId,
+        quizNumber:currentStudentQuiz,
+        quizTitle:currentQuiz.title,
+        student:currentStudent,
+        email:currentStudentEmail,
+        section:currentStudentSection,
+        correct:0,
+        total:currentQuiz.questions.reduce((sum,q)=>sum + getQuestionScore(q,null).maxPoints,0),
+        percentage:0,
+        securityEvents:0,
+        automatic:false,
+        status:"In Progress",
+        submissionType:"Started",
+        startedAt:quizStartedAt,
+        submittedAt:null,
+        lastAction:"Started quiz",
+        lastActivityAt:quizStartedAt,
+        answeredCount:0,
+        currentQuestion:1,
+        attemptNumber,
+        maxAttempts:2,
+        loginCount:Number(existingStudentRow?.loginCount || 0) + 1,
+        attemptsUsed:Math.max(Number(existingStudentRow?.attemptsUsed || 0), Number(attemptNumber || 1)),
+        presentation:attemptPresentation,
+        answers:clone(answers),
+        detailedAnswers:currentQuiz.questions.map((question,index)=>({
+            number:index+1, type:question.type, question:question.question,
+            studentAnswer:null, selected:null, correct:null, isCorrect:false
+        }))
+    };
+
+    const existingRowIndex = records[currentStudentQuiz].findIndex(r =>
+        String(r.id || "") === String(currentRecordId)
+    );
+
+    if(existingRowIndex >= 0){
+        records[currentStudentQuiz][existingRowIndex] = {
+            ...records[currentStudentQuiz][existingRowIndex],
+            ...startRecord,
             id:currentRecordId,
-            attemptId,
-            teacherId:currentStudentTeacherId,
-            quizNumber:currentStudentQuiz,
-            quizTitle:currentQuiz.title,
-            student:currentStudent,
-            email:currentStudentEmail,
-            section:currentStudentSection,
-            correct:0,
-            total:currentQuiz.questions.reduce((sum,q)=>sum + getQuestionScore(q,null).maxPoints,0),
-            percentage:0,
-            securityEvents:0,
-            automatic:false,
-            status:"In Progress",
-            submissionType:"Started",
-            startedAt:quizStartedAt,
-            submittedAt:null,
-            lastAction:"Started quiz",
-            lastActivityAt:quizStartedAt,
-            answeredCount:0,
-            currentQuestion:1,
-            attemptNumber,
-            maxAttempts:2,
-            loginCount:1,
-            presentation:attemptPresentation,
-            answers:clone(answers),
-            detailedAnswers:currentQuiz.questions.map((question,index)=>({
-                number:index+1, type:question.type, question:question.question,
-                studentAnswer:null, selected:null, correct:null, isCorrect:false
-            }))
+            attemptsUsed:Math.max(
+                Number(records[currentStudentQuiz][existingRowIndex].attemptsUsed || 0),
+                Number(attemptNumber || 1)
+            )
         };
-
-    if(!isUpdatingStudentRecord){
+    }else{
         records[currentStudentQuiz].push(startRecord);
     }
 
-    records[currentStudentQuiz] = dedupeStudentRecords(
-        dedupeRecordsByAttempt(dedupeRecordsById(records[currentStudentQuiz]))
-    );
+    records[currentStudentQuiz] = dedupeRecordsById(records[currentStudentQuiz]);
     saveRecords();
     sendToGoogleSheets(startRecord, "save").then(response=>{
         if(!response || !response.ok) console.error("Could not save in-progress record", response);
@@ -3186,7 +3172,7 @@ async function refreshRecordsFromGoogleSheets(){
         return false;
     }
 
-    records[currentQuizNumber] = dedupeStudentRecords(dedupeRecordsByAttempt(dedupeRecordsById(remote)));
+    records[currentQuizNumber] = dedupeRecordsByAttempt(dedupeRecordsById(remote));
     saveRecords();
     renderRecords();
     showAdminStatus("Student records refreshed.");
@@ -3212,7 +3198,7 @@ function startLiveMonitor(){
     liveMonitorInterval=setInterval(async()=>{
         const remote=await loadRecordsFromGoogleSheets(currentQuizNumber);
         if(remote){
-            const clean = dedupeStudentRecords(dedupeRecordsByAttempt(dedupeRecordsById(remote)));
+            const clean = dedupeRecordsByAttempt(dedupeRecordsById(remote));
             records[currentQuizNumber]=clean;
             saveRecords();
             renderRecords();
@@ -5383,8 +5369,8 @@ async function refreshQuizData(){
 ========================================================= */
 
 function renderRecords(){
-    records[currentQuizNumber] = dedupeStudentRecords(
-        dedupeRecordsByAttempt(dedupeRecordsById(getRecords(currentQuizNumber)))
+    records[currentQuizNumber] = dedupeRecordsByAttempt(
+        dedupeRecordsById(getRecords(currentQuizNumber))
     );
 
     if(!isTeacher()){
@@ -5566,7 +5552,7 @@ function renderRecords(){
 
         const sectionArg = encodeURIComponent(section);
         return `
-            <details class="record-section-folder">
+            <details class="record-section-folder" open>
                 <summary>
                     <span class="record-folder-title">📁 ${escapeHTML(section)}</span>
                     <span class="folder-actions">
@@ -6495,24 +6481,17 @@ async function gqCheckBeforeStart(email, quizNumber){
     quizNumber = Number(quizNumber);
     if(!email) return {ok:false, message:"Please enter your email address."};
 
-    /* TWO-ATTEMPT LIMIT
-       The student keeps ONE dashboard record, so loginCount is used to track
-       how many times the student has started this quiz. */
-    const localRecords = (typeof getRecords === "function") ? getRecords(quizNumber) : [];
-    const localStudentRecord = (Array.isArray(localRecords) ? localRecords : []).find(r =>
-        gqNormalizeEmail(r.email) === email
-    );
-    const localLoginCount = Number(localStudentRecord?.loginCount || 0);
-    const localAttemptNumber = Number(localStudentRecord?.attemptNumber || 0);
+    /*
+       SERVER-AUTHORITATIVE 2-ATTEMPT RULE
+       0 server records = Attempt 1
+       1 server record  = Attempt 2
+       2+ server records = BLOCK
 
-    // If two attempts have already been used, block the third login.
-    if(localLoginCount >= 2 || localAttemptNumber >= 2){
-        return {
-            ok:false,
-            message:"You have already used your 2 attempts for this quiz. You cannot log in again."
-        };
-    }
-
+       The server is checked BEFORE localStorage so that when a teacher
+       deletes the student's records, a stale browser copy cannot keep the
+       student blocked. A zero-record server response also clears the local
+       attempt marker immediately.
+    */
     try{
         const server = await apiRequest("checkStudentAttempt", {
             teacherId: currentStudentTeacherId,
@@ -6521,22 +6500,27 @@ async function gqCheckBeforeStart(email, quizNumber){
         }, "GET");
 
         if(server && server.ok){
-            if(server.reason === "max_attempts" || Number(server.attemptCount || 0) >= 2){
+            const attemptCount = Number(server.attemptCount || 0);
+
+            if(server.reason === "max_attempts" || attemptCount >= 2){
                 return {
                     ok:false,
-                    message:server.message || "You have already used your 2 attempts for this quiz. You cannot log in again."
+                    message:server.message || "You have already used both attempts for this quiz. You cannot take it again."
                 };
             }
 
-            if(Number(server.attemptCount || 0) === 0){
+            // Teacher deleted the student's records: completely reset the
+            // local browser attempt state as well.
+            if(attemptCount === 0){
                 gqClearAttempt(email, quizNumber);
                 return {ok:true, newAttempt:true, resetByDeletion:true, attemptNumber:1};
             }
 
+            // Server says exactly one attempt has been used. Allow Attempt 2.
             return {
                 ok:true,
                 newAttempt:true,
-                attemptNumber:Number(server.attemptNumber || (Number(server.attemptCount || 0) + 1))
+                attemptNumber:2
             };
         }
     }catch(error){
