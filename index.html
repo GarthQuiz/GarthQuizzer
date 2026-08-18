@@ -4032,6 +4032,46 @@ function showAdminDashboard(){
 ========================================================= */
 function showAccountMessage(message,type="success"){const success=$("studentAccountStatus"),error=$("studentAccountError");success?.classList.add("hidden");error?.classList.add("hidden");const box=type==="error"?error:success;if(box){box.textContent=message;box.classList.remove("hidden");}}
 function populateAccountSections(){const selects=[$("accountStudentSection"),$("studentImportDefaultSection")].filter(Boolean);const sections=new Set();Object.values(quizzes||{}).forEach(q=>(q.sections||[]).forEach(x=>{if(String(x).trim())sections.add(String(x).trim())}));const values=[...sections].sort((a,b)=>a.localeCompare(b));selects.forEach(select=>{select.innerHTML='<option value="">Select section</option>'+values.map(x=>`<option value="${escapeHTML(x)}">${escapeHTML(x)}</option>`).join("");if(!values.length)select.innerHTML='<option value="">Add sections in Quiz Editor first</option>';});}
+async function createStudentAccount(){
+    if(!isTeacher()) return;
+    const name=$("accountStudentName").value.trim();
+    const email=gqNormalizeEmail($("accountStudentEmail").value);
+    const password=$("accountStudentPassword").value;
+    const section=$("accountStudentSection").value.trim();
+    $("studentAccountStatus")?.classList.add("hidden");
+    $("studentAccountError")?.classList.add("hidden");
+    if(!name||!email||!password||!section){showAccountMessage("Please complete the name, email, password, and section.","error");return;}
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showAccountMessage("Please enter a valid email address.","error");return;}
+    if(password.length<6){showAccountMessage("Password must be at least 6 characters.","error");return;}
+    try{
+        const data=await apiRequest("createStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),name,email,password,section});
+        if(!data||!data.ok){showAccountMessage(data?.message||"Could not create the student account.","error");return;}
+        saveStudentPassword(email,password);
+        $("accountStudentName").value="";$("accountStudentEmail").value="";$("accountStudentPassword").value="";$("accountStudentSection").value="";
+        showAccountMessage("Student account created successfully.");
+        await loadStudentAccounts();
+    }catch(e){console.error(e);showAccountMessage("Server connection failed. Please try again.","error");}
+}
+
+async function deleteStudentAccountFolder(section){
+    if(!isTeacher()||!section)return;
+    const accounts=Array.isArray(window.__gqStudentAccounts)?window.__gqStudentAccounts:[];
+    const members=accounts.filter(student=>String(student.section||"No section").trim()===section);
+    if(!members.length){await loadStudentAccounts();return;}
+    if(!confirm(`Delete the "${section}" folder and all ${members.length} student account${members.length===1?"":"s"} inside it?\n\nThis will permanently delete these student accounts.`))return;
+    showAccountMessage(`Deleting ${members.length} account${members.length===1?"":"s"} from ${section}...`);
+    let failed=0;
+    for(const student of members){
+        try{
+            const data=await apiRequest("deleteStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),id:student.id});
+            if(data&&data.ok)removeSavedStudentPassword(student.email||"");else failed++;
+        }catch(e){console.error(e);failed++;}
+    }
+    if(failed)showAccountMessage(`${failed} account${failed===1?"":"s"} could not be deleted. Please try again.` ,"error");
+    else showAccountMessage(`Section folder "${section}" and all student accounts inside it were deleted.`);
+    await loadStudentAccounts();
+}
+
 async function loadStudentAccounts(){if(!isTeacher())return;const list=$("studentAccountsList");if(list)list.innerHTML='<div class="small">Loading student accounts...</div>';populateAccountSections();try{const data=await apiRequest("getStudentAccounts",{token:sessionStorage.getItem(SESSION_KEY)},"GET");if(!data||!data.ok){if(list)list.innerHTML='<div class="small">Student accounts could not be loaded. Deploy the matching backend first.</div>';return;}renderStudentAccounts(Array.isArray(data.students)?data.students:[]);}catch(e){console.error(e);if(list)list.innerHTML='<div class="small">Unable to connect to the student account service.</div>';}}
 function getSavedStudentPasswords(){
     try{return JSON.parse(localStorage.getItem("GQ_STUDENT_PASSWORDS")||"{}");}
