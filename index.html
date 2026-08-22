@@ -301,6 +301,9 @@ select:focus{
 .record-folder-title{display:flex;align-items:center;gap:9px}
 .record-folder-count{font-size:12px;color:var(--muted);font-weight:800}
 .record-folder-body{padding:10px}
+.record-section-folder summary > .folder-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.record-section-folder summary .folder-delete-btn{flex:0 0 auto}
+
 .account-password-label{font-size:12px;color:var(--muted);font-weight:800}
 .account-password-value{background:#f1f5f9;border:1px solid var(--border);border-radius:8px;padding:6px 9px;word-break:break-all}
 .bulk-import-card{margin-top:20px;border:1px solid var(--border);border-radius:14px;background:#fff;padding:18px}
@@ -365,6 +368,14 @@ select:focus{
     margin-bottom:12px;
 }
 
+
+.question-editor-image-wrap{margin-top:10px;padding:12px;border:1px dashed #93c5fd;background:#f8fbff;border-radius:12px}
+.question-editor-image-preview{display:block;max-width:100%;max-height:280px;margin:10px 0;border-radius:10px;border:1px solid var(--border);object-fit:contain;background:#fff}
+.question-image-caption{font-size:12px;color:var(--muted);margin-top:6px}
+.csv-import-card{margin:20px 0;border:1px solid var(--border);border-radius:14px;background:#fff;padding:18px}
+.csv-import-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.csv-import-note{margin-top:10px;line-height:1.5}
+.csv-import-status{margin-top:12px}
 .question-image{
     max-width:100%;
     width:100%;
@@ -1250,7 +1261,7 @@ Export Quiz
 <button
     class="btn btn-secondary"
     onclick="document.getElementById('importFile').click()">
-Import Quiz
+Import Quiz JSON
 </button>
 
 <input
@@ -1259,6 +1270,26 @@ Import Quiz
     class="hidden"
     accept=".json"
     onchange="importQuiz(event)">
+
+<button
+    class="btn btn-secondary"
+    onclick="document.getElementById('importCsvFile').click()">
+Import Questions CSV
+</button>
+
+<input
+    type="file"
+    id="importCsvFile"
+    class="hidden"
+    accept=".csv,.txt,.tsv"
+    onchange="importQuestionsCSV(event)">
+
+<button
+    class="btn btn-secondary"
+    type="button"
+    onclick="downloadQuizCsvTemplate()">
+Download CSV Template
+</button>
 
 </div>
 
@@ -1272,6 +1303,13 @@ Import Quiz
     </div>
     <div class="button-row" style="margin:0">
     </div>
+</div>
+
+<div class="button-row" style="align-items:center;margin-bottom:12px">
+    <button class="btn btn-secondary" type="button" onclick="toggleSelectAllQuestions(true)">Select All</button>
+    <button class="btn btn-secondary" type="button" onclick="toggleSelectAllQuestions(false)">Clear Selection</button>
+    <button id="deleteSelectedQuestionsBtn" class="btn btn-danger" type="button" onclick="deleteSelectedQuestions()" disabled>Delete Selected</button>
+    <span id="selectedQuestionCount" class="small">0 selected</span>
 </div>
 
 <div id="questionEditors"></div>
@@ -1334,7 +1372,7 @@ Close
    Uses Google Apps Script as the central database.
    No Google Sheet is required for the quiz/record storage.
 ========================================================= */
-const API_URL = "https://script.google.com/macros/s/AKfycbw5FBEYfHn7vhkj15RPH7ems--ABJi5WMaD8zHG1icjb9bP5YazPRcFkRneNBy3Jgi02g/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbzQSTPM3B1Jj2eMzWTWDd6igk5B0CmGC1IsGbiAQ-SCVRqR8kaM7FX9rSZac55FhxBn/exec";
 const PUBLISHED_CACHE_KEY = "garthquiz_published_cache_v1";
 const PUBLISHED_CACHE_TTL = 30000;
 const TEACHER_CACHE_KEY = "garthquiz_teacher_cache_v1";
@@ -1462,6 +1500,7 @@ function createQuestion(type="multiple"){
             id:generateId("question"),
             type:"identification",
             question:"New identification question",
+            image:"",
             acceptedAnswers:["Correct answer"]
         };
     }
@@ -1471,6 +1510,7 @@ function createQuestion(type="multiple"){
             id:generateId("question"),
             type:"enumeration",
             question:"New enumeration question",
+            image:"",
             requiredAnswers:[
                 "Freshwater",
                 "Saltwater",
@@ -1487,6 +1527,7 @@ function createQuestion(type="multiple"){
         id:generateId("question"),
         type:"multiple",
         question:"New multiple choice question",
+        image:"",
         options:[
             "Choice A",
             "Choice B",
@@ -2507,6 +2548,8 @@ function renderQuiz(){
                 ${typeName}
             </div>
 
+            ${question.image ? `<img class="question-image" src="${escapeHTML(question.image)}" alt="Question picture" draggable="false">` : ""}
+
             <div class="question-text"></div>
 
             <div class="answer-area"></div>
@@ -3165,18 +3208,36 @@ async function loadRecordsFromGoogleSheets(quizNumber){
 async function refreshRecordsFromGoogleSheets(){
     if(!isTeacher()) return false;
 
-    const remote = await loadRecordsFromGoogleSheets(currentQuizNumber);
-    if(remote === null){
+    const openRecordFolders = getOpenRecordFolders_();
+
+    try{
+        const remote = await loadRecordsFromGoogleSheets(currentQuizNumber);
+
+        if(remote === null){
+            renderRecords();
+            restoreOpenRecordFolders_(openRecordFolders);
+            showAdminStatus("Could not load the latest student records.");
+            return false;
+        }
+
+        records[currentQuizNumber] =
+            dedupeRecordsByAttempt(
+                dedupeRecordsById(remote)
+            );
+
+        saveRecords();
         renderRecords();
+        restoreOpenRecordFolders_(openRecordFolders);
+        showAdminStatus("Student records refreshed.");
+        return true;
+
+    }catch(error){
+        console.error("refreshRecordsFromGoogleSheets failed:", error);
+        renderRecords();
+        restoreOpenRecordFolders_(openRecordFolders);
         showAdminStatus("Could not load the latest student records.");
         return false;
     }
-
-    records[currentQuizNumber] = dedupeRecordsByAttempt(dedupeRecordsById(remote));
-    saveRecords();
-    renderRecords();
-    showAdminStatus("Student records refreshed.");
-    return true;
 }
 
 /* =========================================================
@@ -3194,17 +3255,43 @@ function syncInProgressActivity(action,currentQuestion){
     activitySyncTimer=setTimeout(()=>sendToGoogleSheets(record,"save").catch(()=>{}),1200);
 }
 function startLiveMonitor(){
-    clearInterval(liveMonitorInterval); if(!isTeacher()) return;
-    liveMonitorInterval=setInterval(async()=>{
-        const remote=await loadRecordsFromGoogleSheets(currentQuizNumber);
-        if(remote){
-            const clean = dedupeRecordsByAttempt(dedupeRecordsById(remote));
-            records[currentQuizNumber]=clean;
-            saveRecords();
-            renderRecords();
-            renderLiveStudents(clean);
+    clearInterval(liveMonitorInterval);
+
+    if(!isTeacher()) return;
+
+    liveMonitorInterval = setInterval(async()=>{
+        const openRecordFolders = getOpenRecordFolders_();
+
+        try{
+            const remote = await loadRecordsFromGoogleSheets(currentQuizNumber);
+
+            if(remote){
+                const clean =
+                    dedupeRecordsByAttempt(
+                        dedupeRecordsById(remote)
+                    );
+
+                records[currentQuizNumber] = clean;
+                saveRecords();
+
+                renderRecords();
+                restoreOpenRecordFolders_(openRecordFolders);
+                renderLiveStudents(clean);
+            }
+
+            const st = $("liveMonitorStatus");
+            if(st){
+                st.textContent =
+                    "Updated " + new Date().toLocaleTimeString();
+            }
+
+        }catch(error){
+            console.error("Live student-record refresh failed:", error);
+
+            // Keep the existing screen and folder state when the server
+            // temporarily fails. Do not destroy the teacher's open folder.
+            restoreOpenRecordFolders_(openRecordFolders);
         }
-        const st=$("liveMonitorStatus"); if(st) st.textContent="Updated "+new Date().toLocaleTimeString();
     },8000);
 }
 function renderLiveStudents(all){
@@ -4072,6 +4159,110 @@ async function deleteStudentAccountFolder(section){
     await loadStudentAccounts();
 }
 
+/* =========================================================
+   STUDENT ACCOUNT CSV IMPORT / TEMPLATE
+   ========================================================= */
+let importedStudentRows = [];
+
+function downloadStudentImportTemplate(){
+    const rows = [
+        ["Name","Email","Password","Section"],
+        ["Juan Dela Cruz","juan@example.com","Student123","Grade 10 - Rizal"],
+        ["Maria Santos","maria@example.com","","Grade 10 - Rizal"]
+    ];
+    const csv = "\uFEFF" + rows.map(row => row.map(csvEscape).join(",")).join("\r\n");
+    download(csv, "Student_Accounts_Template.csv", "text/csv;charset=utf-8");
+}
+
+function generateTemporaryStudentPassword(){
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+    let result = "";
+    for(let i=0;i<10;i++) result += chars[Math.floor(Math.random()*chars.length)];
+    return result;
+}
+
+function normalizeStudentImportHeader(value){
+    return String(value || "").trim().toLowerCase().replace(/[\s_-]+/g,"");
+}
+
+function parseStudentImportText(text){
+    text = String(text || "").replace(/^\uFEFF/,"");
+    if(!text.trim()) throw new Error("The selected file is empty.");
+    if(/^\s*[\[{]/.test(text)){
+        const parsed = JSON.parse(text);
+        const list = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.students) ? parsed.students : null);
+        if(!list) throw new Error("JSON must contain an array of students.");
+        return list.map((item,i)=>({name:String(item.Name ?? item.name ?? "").trim(),email:String(item.Email ?? item.email ?? "").trim(),password:String(item.Password ?? item.password ?? "").trim(),section:String(item.Section ?? item.section ?? "").trim(),_row:i+1}));
+    }
+    if(text.includes("\t") && !text.includes(",")) text=text.replace(/\t/g,",");
+    const rows=parseCSVText(text);
+    if(rows.length<2) throw new Error("The file must contain a header row and at least one student.");
+    const headers=rows[0].map(normalizeStudentImportHeader);
+    const findCol=(...names)=>{for(const name of names){const i=headers.indexOf(name);if(i>=0)return i;}return -1;};
+    const nameCol=findCol("name","studentname","fullname");
+    const emailCol=findCol("email","emailaddress");
+    const passwordCol=findCol("password","pass");
+    const sectionCol=findCol("section","class","classname");
+    if(nameCol<0||emailCol<0) throw new Error("Required columns are Name and Email.");
+    return rows.slice(1).map((row,i)=>({name:String(row[nameCol]||"").trim(),email:String(row[emailCol]||"").trim(),password:passwordCol>=0?String(row[passwordCol]||"").trim():"",section:sectionCol>=0?String(row[sectionCol]||"").trim():"",_row:i+2}));
+}
+
+function renderStudentImportPreview(){
+    const box=$("studentImportPreview"),button=$("createImportedStudentsButton");
+    if(!box)return;
+    if(!importedStudentRows.length){box.innerHTML='<div class="import-empty">No students imported yet.</div>';if(button)button.disabled=true;return;}
+    box.innerHTML=`<table class="bulk-import-table"><thead><tr><th>#</th><th>Name</th><th>Email</th><th>Password</th><th>Section</th><th>Status</th></tr></thead><tbody>${importedStudentRows.map((student,i)=>`<tr><td>${i+1}</td><td>${escapeHTML(student.name||"—")}</td><td>${escapeHTML(student.email||"—")}</td><td class="account-password">${escapeHTML(student.password||"—")}</td><td>${escapeHTML(student.section||"Use default section")}</td><td>${student._error?`<span class="badge badge-red">${escapeHTML(student._error)}</span>`:'<span class="badge badge-green">Ready</span>'}</td></tr>`).join("")}</tbody></table>`;
+    if(button)button.disabled=!importedStudentRows.some(s=>!s._error);
+}
+
+function handleStudentImportFile(event){
+    const file=event.target.files&&event.target.files[0];if(!file)return;
+    const status=$("studentImportStatus");if(status)status.textContent="Reading "+file.name+"...";
+    const reader=new FileReader();
+    reader.onload=function(e){
+        try{
+            const rows=parseStudentImportText(e.target.result), defaultSection=String($("studentImportDefaultSection")?.value||"").trim(), seenEmails=new Set();
+            importedStudentRows=rows.filter(s=>s.name||s.email||s.section||s.password).map(student=>{
+                const item={...student};item.email=gqNormalizeEmail(item.email);
+                if(!item.name)item._error="Missing name";
+                else if(!item.email)item._error="Missing email";
+                else if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.email))item._error="Invalid email";
+                else if(seenEmails.has(item.email))item._error="Duplicate email";
+                else{seenEmails.add(item.email);item.section=item.section||defaultSection;if(!item.section)item._error="Missing section";if(!item.password)item.password=generateTemporaryStudentPassword();if(item.password.length<6)item._error="Password must be 6+ characters";}
+                return item;
+            });
+            if(!importedStudentRows.length)throw new Error("No student rows were found.");
+            const invalid=importedStudentRows.filter(s=>s._error).length;
+            if(status)status.textContent=`${importedStudentRows.length} student${importedStudentRows.length===1?"":"s"} loaded.${invalid?` ${invalid} row${invalid===1?"":"s"} need correction.`:" Ready to create accounts."}`;
+            renderStudentImportPreview();
+        }catch(error){console.error(error);importedStudentRows=[];renderStudentImportPreview();if(status)status.textContent="";alert("Unable to import student file. "+error.message);}
+        finally{event.target.value="";}
+    };
+    reader.onerror=function(){if(status)status.textContent="";alert("Unable to read the student import file.");event.target.value="";};
+    reader.readAsText(file);
+}
+
+async function createImportedStudentAccounts(){
+    if(!isTeacher()||!importedStudentRows.length)return;
+    const validRows=importedStudentRows.filter(s=>!s._error);if(!validRows.length){showAccountMessage("There are no valid student rows to create.","error");return;}
+    const button=$("createImportedStudentsButton");if(button)button.disabled=true;
+    let created=0,failed=0;
+    showAccountMessage(`Creating ${validRows.length} student account${validRows.length===1?"":"s"}...`);
+    for(const student of validRows){
+        try{
+            const data=await apiRequest("createStudentAccount",{token:sessionStorage.getItem(SESSION_KEY),name:student.name,email:student.email,password:student.password,section:student.section});
+            if(data&&data.ok){saveStudentPassword(student.email,student.password);student._created=true;created++;}
+            else{student._error=data?.message||"Could not create account";failed++;}
+        }catch(error){console.error(error);student._error="Server connection failed";failed++;}
+    }
+    await loadStudentAccounts();renderStudentImportPreview();
+    if(failed)showAccountMessage(`${created} account${created===1?"":"s"} created. ${failed} failed. Check the import preview for details.`,created?"success":"error");
+    else{showAccountMessage(`${created} student account${created===1?"":"s"} created successfully.`);importedStudentRows=[];renderStudentImportPreview();if($("studentImportStatus"))$("studentImportStatus").textContent="Import completed successfully.";}
+    if(button)button.disabled=!importedStudentRows.some(s=>!s._error);
+}
+
+function clearStudentImport(){importedStudentRows=[];const input=$("studentImportFile");if(input)input.value="";if($("studentImportStatus"))$("studentImportStatus").textContent="";renderStudentImportPreview();}
+
 async function loadStudentAccounts(){if(!isTeacher())return;const list=$("studentAccountsList");if(list)list.innerHTML='<div class="small">Loading student accounts...</div>';populateAccountSections();try{const data=await apiRequest("getStudentAccounts",{token:sessionStorage.getItem(SESSION_KEY)},"GET");if(!data||!data.ok){if(list)list.innerHTML='<div class="small">Student accounts could not be loaded. Deploy the matching backend first.</div>';return;}renderStudentAccounts(Array.isArray(data.students)?data.students:[]);}catch(e){console.error(e);if(list)list.innerHTML='<div class="small">Unable to connect to the student account service.</div>';}}
 function getSavedStudentPasswords(){
     try{return JSON.parse(localStorage.getItem("GQ_STUDENT_PASSWORDS")||"{}");}
@@ -4303,6 +4494,13 @@ function renderQuestionEditors(){
             <div class="question-editor-header">
 
                 <div style="display:flex;align-items:center;gap:10px">
+                    <input
+                        type="checkbox"
+                        class="question-select-checkbox"
+                        data-question-index="${index}"
+                        onchange="updateSelectedQuestionCount()"
+                        style="width:18px;height:18px;flex:0 0 18px;margin:0;accent-color:var(--primary)"
+                        aria-label="Select Question ${index + 1}">
                     <h3 style="margin:0">
                         Question ${index + 1}
                     </h3>
@@ -4353,6 +4551,28 @@ function renderQuestionEditors(){
 
             </div>
 
+            <div class="question-editor-image-wrap">
+                <label>Question Picture (optional)</label>
+                <input
+                    type="file"
+                    id="questionImage_${index}"
+                    accept="image/*"
+                    onchange="handleQuestionImageUpload(${index}, event)">
+                <div class="question-image-caption">Add a picture to this question. It will be saved with the quiz.</div>
+                <img
+                    id="questionImagePreview_${index}"
+                    class="question-editor-image-preview ${question.image ? "" : "hidden"}"
+                    src="${question.image ? escapeHTML(question.image) : ""}"
+                    alt="Question image preview">
+                <button
+                    type="button"
+                    class="btn btn-danger ${question.image ? "" : "hidden"}"
+                    id="removeQuestionImage_${index}"
+                    onclick="removeQuestionImage(${index})">
+                    Remove Picture
+                </button>
+            </div>
+
             <div id="questionSettings_${index}">
             </div>
         `;
@@ -4380,6 +4600,62 @@ function renderQuestionEditors(){
     });
 }
 
+
+function handleQuestionImageUpload(index, event){
+    const file = event.target.files && event.target.files[0];
+    if(!file) return;
+
+    if(!file.type.startsWith("image/")){
+        alert("Please select an image file.");
+        event.target.value = "";
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e){
+        const quiz = getQuiz(currentQuizNumber);
+        const question = quiz.questions[index];
+        question.image = e.target.result;
+
+        const preview = $("questionImagePreview_" + index);
+        const removeButton = $("removeQuestionImage_" + index);
+
+        if(preview){
+            preview.src = question.image;
+            preview.classList.remove("hidden");
+        }
+        if(removeButton){
+            removeButton.classList.remove("hidden");
+        }
+
+        showAdminStatus("Question picture added.");
+    };
+    reader.onerror = function(){
+        alert("Unable to read the selected image.");
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+}
+
+function removeQuestionImage(index){
+    const quiz = getQuiz(currentQuizNumber);
+    const question = quiz.questions[index];
+    question.image = "";
+
+    const preview = $("questionImagePreview_" + index);
+    const removeButton = $("removeQuestionImage_" + index);
+
+    if(preview){
+        preview.src = "";
+        preview.classList.add("hidden");
+    }
+    if(removeButton){
+        removeButton.classList.add("hidden");
+    }
+
+    showAdminStatus("Question picture removed.");
+}
+
 function changeQuestionType(index){
 
     const quiz =
@@ -4400,6 +4676,8 @@ function changeQuestionType(index){
 
     question.question =
         old.question || question.question;
+    question.image =
+        old.image || "";
 
     quiz.questions[index] =
         question;
@@ -5110,6 +5388,89 @@ function addQuestion(){
     );
 }
 
+function getSelectedQuestionIndexes(){
+    return Array.from(document.querySelectorAll(".question-select-checkbox:checked"))
+        .map(function(cb){ return Number(cb.dataset.questionIndex); })
+        .filter(function(index){ return Number.isInteger(index); });
+}
+
+function updateSelectedQuestionCount(){
+    const selected = getSelectedQuestionIndexes();
+    const count = selected.length;
+    const countEl = $("selectedQuestionCount");
+    const deleteBtn = $("deleteSelectedQuestionsBtn");
+
+    if(countEl) countEl.textContent = count + " selected";
+    if(deleteBtn){
+        deleteBtn.disabled = count === 0;
+        deleteBtn.style.opacity = count === 0 ? "0.55" : "1";
+        deleteBtn.style.cursor = count === 0 ? "not-allowed" : "pointer";
+    }
+}
+
+function toggleSelectAllQuestions(checked){
+    document.querySelectorAll(".question-select-checkbox").forEach(function(cb){
+        cb.checked = !!checked;
+    });
+    updateSelectedQuestionCount();
+}
+
+async function deleteSelectedQuestions(){
+    const selected = getSelectedQuestionIndexes();
+
+    if(!selected.length){
+        alert("Please select at least one question to delete.");
+        return;
+    }
+
+    const quiz = getQuiz(currentQuizNumber);
+
+    if(!confirm(
+        "Delete " + selected.length + " selected question" +
+        (selected.length === 1 ? "" : "s") + "?\n\n" +
+        "This will also save the deletion online."
+    )){
+        return;
+    }
+
+    selected
+        .sort((a,b) => b-a)
+        .forEach(index => {
+            if(index >= 0 && index < quiz.questions.length){
+                quiz.questions.splice(index, 1);
+            }
+        });
+
+    // Update the existing local quiz data first.
+    saveQuizzes();
+    renderQuestionEditors();
+    renderHomeQuizzes();
+    updateSelectedQuestionCount();
+
+    // Use the existing online-save function so the deletion
+    // is persisted to the teacher's online quiz.
+    try{
+        await saveQuiz();
+
+        showAdminStatus(
+            selected.length + " question" +
+            (selected.length === 1 ? "" : "s") +
+            " deleted and saved online."
+        );
+    }catch(error){
+        console.error(error);
+        showAdminStatus(
+            selected.length + " question" +
+            (selected.length === 1 ? "" : "s") +
+            " deleted locally, but the online save failed."
+        );
+        alert(
+            "The questions were deleted locally, but the online save failed. " +
+            "Please check your connection and click Save Quiz Online."
+        );
+    }
+}
+
 function deleteQuestion(index){
 
     if(!confirm(
@@ -5408,7 +5769,51 @@ async function refreshQuizData(){
    RECORDS
 ========================================================= */
 
+/* =========================================================
+   STUDENT RECORD FOLDER STATE
+   ========================================================= */
+
+function getOpenRecordFolders_(){
+    const open = {};
+
+    document
+        .querySelectorAll(".record-section-folder[open]")
+        .forEach(folder=>{
+            const title = folder.querySelector(".record-folder-title");
+            if(!title) return;
+
+            const section = title.textContent
+                .replace(/^📁\s*/, "")
+                .trim();
+
+            if(section) open[section] = true;
+        });
+
+    return open;
+}
+
+function restoreOpenRecordFolders_(open){
+    if(!open) return;
+
+    document
+        .querySelectorAll(".record-section-folder")
+        .forEach(folder=>{
+            const title = folder.querySelector(".record-folder-title");
+            if(!title) return;
+
+            const section = title.textContent
+                .replace(/^📁\s*/, "")
+                .trim();
+
+            if(section && open[section]){
+                folder.open = true;
+            }
+        });
+}
+
 function renderRecords(){
+    const openRecordFolders = getOpenRecordFolders_();
+
     records[currentQuizNumber] = dedupeRecordsByAttempt(
         dedupeRecordsById(getRecords(currentQuizNumber))
     );
@@ -5592,7 +5997,7 @@ function renderRecords(){
 
         const sectionArg = encodeURIComponent(section);
         return `
-            <details class="record-section-folder" open>
+            <details class="record-section-folder">
                 <summary>
                     <span class="record-folder-title">📁 ${escapeHTML(section)}</span>
                     <span class="folder-actions">
@@ -5660,6 +6065,8 @@ function renderRecords(){
         `;
     }).join("");
 
+    // Re-open any section folders that were open before the refresh.
+    restoreOpenRecordFolders_(openRecordFolders);
 }
 
 
@@ -6024,6 +6431,210 @@ function exportQuiz(){
         ".json",
         "application/json"
     );
+}
+
+
+function parseCSVText(text){
+    const rows = [];
+    let row = [];
+    let cell = "";
+    let quoted = false;
+
+    for(let i=0; i<text.length; i++){
+        const ch = text[i];
+
+        if(ch === '"'){
+            if(quoted && text[i + 1] === '"'){
+                cell += '"';
+                i++;
+            }else{
+                quoted = !quoted;
+            }
+        }else if(ch === "," && !quoted){
+            row.push(cell);
+            cell = "";
+        }else if((ch === "\n" || ch === "\r") && !quoted){
+            if(ch === "\r" && text[i + 1] === "\n") i++;
+            row.push(cell);
+            if(row.some(v => String(v).trim() !== "")) rows.push(row);
+            row = [];
+            cell = "";
+        }else{
+            cell += ch;
+        }
+    }
+
+    if(cell !== "" || row.length){
+        row.push(cell);
+        if(row.some(v => String(v).trim() !== "")) rows.push(row);
+    }
+
+    return rows;
+}
+
+function csvEscape(value){
+    const text = String(value == null ? "" : value);
+    return `"${text.replace(/"/g, '""')}"`;
+}
+
+function downloadQuizCsvTemplate(){
+    const rows = [
+        ["question","option_a","option_b","option_c","option_d","answer","type","image"],
+        ["A plan is best defined as:","A police report","An organized schedule of activities to achieve objectives","A law enforcement policy","A budget proposal","B","multiple",""]
+    ];
+
+    const csv = rows.map(row => row.map(csvEscape).join(",")).join("\r\n");
+    download(csv, "Quiz_Questions_Template.csv", "text/csv;charset=utf-8");
+}
+
+function normalizeQuestionType(value){
+    const v = String(value || "").trim().toLowerCase();
+    if(v === "identification" || v === "identify" || v === "id") return "identification";
+    if(v === "enumeration" || v === "enum") return "enumeration";
+    return "multiple";
+}
+
+function resolveCsvAnswer(value, options){
+    const raw = String(value || "").trim();
+    if(!raw) return 0;
+
+    const upper = raw.toUpperCase();
+    const letterMatch = upper.match(/^[A-D]$/);
+    if(letterMatch){
+        const idx = upper.charCodeAt(0) - 65;
+        return idx < options.length ? idx : 0;
+    }
+
+    const number = Number(raw);
+    if(Number.isInteger(number)){
+        if(number >= 0 && number < options.length) return number;
+        if(number >= 1 && number <= options.length) return number - 1;
+    }
+
+    const exact = options.findIndex(o => String(o).trim().toLowerCase() === raw.toLowerCase());
+    return exact >= 0 ? exact : 0;
+}
+
+function importQuestionsCSV(event){
+    const file = event.target.files && event.target.files[0];
+    if(!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = function(e){
+        try{
+            let text = String(e.target.result || "").replace(/^\uFEFF/, "");
+            if(text.includes("\t") && !text.includes(",")){
+                text = text.replace(/\t/g, ",");
+            }
+
+            const rows = parseCSVText(text);
+            if(rows.length < 2){
+                throw new Error("The CSV file has no question rows.");
+            }
+
+            const headers = rows[0].map(h => String(h).trim().toLowerCase());
+            const col = name => headers.indexOf(name);
+
+            const questionCol = col("question");
+            if(questionCol < 0){
+                throw new Error('CSV must contain a "question" column.');
+            }
+
+            const quiz = getQuiz(currentQuizNumber);
+            let added = 0;
+
+            rows.slice(1).forEach(row=>{
+                const questionText = String(row[questionCol] || "").trim();
+                if(!questionText) return;
+
+                const type = normalizeQuestionType(
+                    col("type") >= 0 ? row[col("type")] : "multiple"
+                );
+
+                const options = ["a","b","c","d"]
+                    .map(letter=>{
+                        const idx = col("option_" + letter);
+                        return idx >= 0 ? String(row[idx] || "").trim() : "";
+                    })
+                    .filter(Boolean);
+
+                const imageIdx = col("image");
+                const image = imageIdx >= 0 ? String(row[imageIdx] || "").trim() : "";
+
+                if(type === "multiple"){
+                    const q = createQuestion("multiple");
+                    q.question = questionText;
+                    q.image = image;
+                    if(options.length >= 2){
+                        q.options = options;
+                        const answerIdx = col("answer") >= 0 ? row[col("answer")] : "";
+                        q.answer = resolveCsvAnswer(answerIdx, options);
+                    }
+                    quiz.questions.push(q);
+                    added++;
+                    return;
+                }
+
+                if(type === "identification"){
+                    const q = createQuestion("identification");
+                    q.question = questionText;
+                    q.image = image;
+                    const answersIdx = col("answers") >= 0 ? row[col("answers")] : (col("answer") >= 0 ? row[col("answer")] : "");
+                    q.acceptedAnswers = String(answersIdx || "Correct answer")
+                        .split("|")
+                        .map(v=>v.trim())
+                        .filter(Boolean);
+                    quiz.questions.push(q);
+                    added++;
+                    return;
+                }
+
+                const q = createQuestion("enumeration");
+                q.question = questionText;
+                q.image = image;
+                const answersIdx = col("answers") >= 0 ? row[col("answers")] : (col("answer") >= 0 ? row[col("answer")] : "");
+                const answers = String(answersIdx || "")
+                    .split("|")
+                    .map(v=>v.trim())
+                    .filter(Boolean);
+                if(answers.length){
+                    q.requiredAnswers = answers;
+                    q.studentAnswerCount = Math.min(q.studentAnswerCount || answers.length, answers.length);
+                }
+                quiz.questions.push(q);
+                added++;
+            });
+
+            if(!added){
+                throw new Error("No valid questions were found in the CSV.");
+            }
+
+            saveQuizzes();
+            renderQuestionEditors();
+            renderHomeQuizzes();
+            showAdminStatus(
+                added + " question" + (added === 1 ? "" : "s") + " imported into Quiz " + currentQuizNumber + "."
+            );
+
+            if(col("answer") < 0){
+                alert(
+                    added + " question" + (added === 1 ? "" : "s") +
+                    " imported successfully. Your CSV has no 'answer' column, so Multiple Choice questions default to option A. You can change the correct answer in the Quiz Editor."
+                );
+            }
+        }catch(error){
+            console.error(error);
+            alert("Unable to import CSV questions. " + error.message);
+        }
+    };
+
+    reader.onerror = function(){
+        alert("Unable to read the CSV file.");
+    };
+
+    reader.readAsText(file);
+    event.target.value = "";
 }
 
 function importQuiz(event){
